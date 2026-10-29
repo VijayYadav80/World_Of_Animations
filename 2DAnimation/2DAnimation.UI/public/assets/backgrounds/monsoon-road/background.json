@@ -1,0 +1,11 @@
+{
+  "schemaVersion": 1,
+  "id": "monsoon-road",
+  "displayName": "Monsoon village road",
+  "assetVersion": "1.0.0",
+  "image": "background.svg",
+  "width": 1280,
+  "height": 720,
+  "groundY": 640,
+  "defaultCharacterScale": 0.8
+}
