@@ -102,8 +102,14 @@ export class LeftSidebarComponent {
 
   // ------------------------------------------------------------ scenes
 
-  setBackground(id: string): void {
-    this.scene.setBackground(id);
+  /** Clicking a scene adds it to the end of the timeline (it plays after the scenes already there). */
+  addSceneToTimeline(id: string): void {
+    this.scene.addScene(id);
+  }
+
+  /** How many times this image is used on the timeline. */
+  sceneUses(id: string): number {
+    return this.scene.state().scenes.filter(s => s.backgroundId === id).length;
   }
 
   pickBackground(): void { this.bgInput?.nativeElement.click(); }
@@ -116,15 +122,15 @@ export class LeftSidebarComponent {
     this.bgMessage.set(null);
     try {
       const bg = await this.mine.addBackground(file);
-      this.scene.setBackground(bg.id);
+      this.scene.addScene(bg.id);
     } catch (e) {
       this.bgMessage.set(errorText(e));
     }
   }
 
   async removeBackground(id: string): Promise<void> {
-    if (this.scene.state().backgroundId === id) {
-      this.bgMessage.set('This scene is in use. Choose another scene first, then remove it.');
+    if (this.sceneUses(id) > 0) {
+      this.bgMessage.set('This image is used on the timeline. Delete its scene block from the timeline first, then remove it.');
       return;
     }
     this.bgMessage.set(null);
@@ -135,7 +141,7 @@ export class LeftSidebarComponent {
 
   async addCharacter(characterId: string): Promise<void> {
     const state = this.scene.state();
-    const bgId = state.backgroundId;
+    const bgId = this.scene.currentBackgroundId();
     const def = bgId ? (await this.assets.getBackground(bgId)).def : undefined;
     // Spread new characters left/right of the centre so they do not stack on top of each other.
     const n = state.characters.length;

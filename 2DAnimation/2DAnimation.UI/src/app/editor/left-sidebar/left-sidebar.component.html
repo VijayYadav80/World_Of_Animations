@@ -23,15 +23,15 @@
     @case ('backgrounds') {
       <button type="button" class="primary wide" (click)="pickBackground()">+ Add scene image</button>
       <input #bgInput type="file" hidden accept="image/png,image/jpeg,image/webp,image/svg+xml" (change)="onBackgroundPicked($event)" />
-      <p class="hint">Use a landscape picture (16:9 fits best). It is saved in this browser only.</p>
+      <p class="hint">Use a landscape picture (16:9 fits best). It is saved in this browser only. Click a picture to add it as the next scene on the timeline.</p>
       @if (bgMessage()) { <p class="error">{{ bgMessage() }}</p> }
       <div class="grid">
         @for (b of backgrounds(); track b.id) {
           <div class="thumb-wrap">
-            <button type="button" class="thumb" [class.on]="scene.state().backgroundId === b.id" (click)="setBackground(b.id)" [title]="'Use ' + b.name">
+            <button type="button" class="thumb" [class.on]="sceneUses(b.id) > 0" (click)="addSceneToTimeline(b.id)" [title]="'Add ' + b.name + ' to the end of the timeline'">
               <img [src]="b.thumb" [alt]="b.name" loading="lazy" />
               <span class="cap">{{ b.name }}</span>
-              @if (scene.state().backgroundId === b.id) { <span class="tick">In use</span> }
+              @if (sceneUses(b.id) > 0) { <span class="tick">On timeline ×{{ sceneUses(b.id) }}</span> }
               @if (b.mine) { <span class="mine">Mine</span> }
             </button>
             @if (b.mine) {

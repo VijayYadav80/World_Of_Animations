@@ -132,6 +132,11 @@ export function activeDialogue(dialogues: DialogueClip[], characterId: string, t
   return found;
 }
 
+/** Position inside the audio FILE for timeline time `t` (a split clip does not start at the beginning of its file). */
+export function audioLocalMs(a: AudioClip, t: number): number {
+  return t - a.start + (a.offset ?? 0);
+}
+
 export type MouthLookup = (assetId: string) => MouthTrack | undefined;
 
 /**
@@ -145,12 +150,12 @@ export function mouthState(
   for (const a of audioClips) {
     if (a.characterId !== characterId || t < a.start || t >= a.start + a.duration) continue;
     const track = lookup(a.assetId);
-    if (track) return trackOpenAt(track, t - a.start) ? 'open' : 'closed';
+    if (track) return trackOpenAt(track, audioLocalMs(a, t)) ? 'open' : 'closed';
   }
   const d = activeDialogue(dialogues, characterId, t);
   if (!d) return null;
   const linked = d.audioId ? audioClips.find(a => a.id === d.audioId) : undefined;
   const track = linked ? lookup(linked.assetId) : undefined;
-  if (linked && track) return trackOpenAt(track, t - linked.start) ? 'open' : 'closed';
+  if (linked && track) return trackOpenAt(track, audioLocalMs(linked, t)) ? 'open' : 'closed';
   return textMouthAt(d.text, t - d.start, d.duration) ? 'open' : 'closed';
 }

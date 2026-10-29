@@ -55,9 +55,10 @@
 .block:hover { filter: brightness(1.12); }
 .block:active { cursor: grabbing; }
 .block.action { cursor: pointer; }
+.block.action .handle { cursor: ew-resize; }
 .block.sel { box-shadow: 0 0 0 2px var(--bg-1), 0 0 0 4px var(--accent); }
-/* action blocks follow the selected character, so they only get a soft outline (dialogue/audio get the full ring) */
-.block.action.sel { box-shadow: 0 1px 4px rgba(0, 0, 0, .25); border-color: var(--c); }
+/* scene blocks are taller-looking and bolder so the story structure reads at a glance */
+.block.scene { font-weight: 700; background: linear-gradient(180deg, color-mix(in srgb, var(--c) 58%, var(--bg-2)), color-mix(in srgb, var(--c) 36%, var(--bg-2))); }
 .block.linked::after { content: "⛓"; position: absolute; right: 4px; top: 1px; font-size: 10px; opacity: .6; }
 .txt { position: relative; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: 12px; font-weight: 600; pointer-events: none; text-shadow: 0 1px 2px rgba(0, 0, 0, .3); color: var(--text); }
 .wave { position: absolute; inset: 2px 0; width: 100%; height: calc(100% - 4px); opacity: .55; pointer-events: none; }

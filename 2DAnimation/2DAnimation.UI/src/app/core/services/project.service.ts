@@ -3,7 +3,8 @@ import { Injectable, effect, inject, signal, untracked } from '@angular/core';
 import { firstValueFrom } from 'rxjs';
 import { API_BASE_URL } from '../api/api-health.service';
 import { emptyTimeline } from '../animation/animation-engine';
-import { ProjectDetail, ProjectSummary, SavedAudioAsset, SceneFileV1 } from '../models/project.models';
+import { ProjectDetail, ProjectSummary, SavedAudioAsset, SceneFileV2 } from '../models/project.models';
+import { newScene } from '../models/scene-segments';
 import { AssetManifestService } from './asset-manifest.service';
 import { AudioService } from './audio.service';
 import { PlaybackService } from './playback.service';
@@ -157,13 +158,13 @@ export class ProjectService {
         } catch { missing.push(a.name); }
       }
 
-      const empty = !file.backgroundId && file.characters.length === 0;
+      const empty = file.scenes.length === 0 && file.characters.length === 0;
       if (empty) {
         this.scene.resetScene();
         await this.addDefaults();
       } else {
         this.scene.loadScene({
-          backgroundId: file.backgroundId,
+          scenes: file.scenes,
           characters: file.characters,
           dialogues: file.dialogues,
           audioClips: file.audioClips,
@@ -213,7 +214,7 @@ export class ProjectService {
     const manifest = await this.assets.getManifest();
     const bg = manifest.backgrounds[0];
     const ch = manifest.characters[0];
-    if (bg) this.scene.setBackground(bg.id);
+    if (bg) this.scene.addScene(bg.id, DEFAULT_DURATION);
     if (ch) {
       const def = bg ? (await this.assets.getBackground(bg.id)).def : undefined;
       this.scene.addCharacter(ch.id, STAGE_WIDTH / 2, def?.groundY ?? 640, def?.defaultCharacterScale ?? 0.8);
@@ -231,11 +232,11 @@ export class ProjectService {
     return [...out.values()];
   }
 
-  private buildFile(): SceneFileV1 {
+  private buildFile(): SceneFileV2 {
     const s = this.scene.state();
     return {
-      schemaVersion: 1,
-      backgroundId: s.backgroundId,
+      schemaVersion: 2,
+      scenes: s.scenes,
       characters: s.characters,
       dialogues: s.dialogues,
       audioClips: s.audioClips,
@@ -248,20 +249,27 @@ export class ProjectService {
     return `${this.name().trim()}\n${JSON.stringify(this.buildFile())}`;
   }
 
-  /** Tolerant reader: an empty "{}" document (a project created but never saved) becomes an empty scene. */
-  private parse(json: string): SceneFileV1 {
-    let raw: Partial<SceneFileV1> = {};
-    try { raw = JSON.parse(json || '{}') as Partial<SceneFileV1>; } catch { throw new Error('The saved scene is corrupted.'); }
-    if (raw.schemaVersion !== undefined && raw.schemaVersion !== 1) throw new Error(`This project was saved by a newer version (schema ${raw.schemaVersion}).`);
+  /** Tolerant reader: an empty "{}" document (a project created but never saved) becomes an empty scene.
+   *  Old v1 files (one `backgroundId`) become a single scene that lasts the whole timeline. */
+  private parse(json: string): SceneFileV2 {
+    type Raw = Omit<Partial<SceneFileV2>, 'schemaVersion'> & { schemaVersion?: number; backgroundId?: string | null };
+    let raw: Raw = {};
+    try { raw = JSON.parse(json || '{}') as Raw; } catch { throw new Error('The saved scene is corrupted.'); }
+    if (raw.schemaVersion !== undefined && raw.schemaVersion !== 1 && raw.schemaVersion !== 2) {
+      throw new Error(`This project was saved by a newer version (schema ${raw.schemaVersion}).`);
+    }
+    const duration = typeof raw.duration === 'number' ? raw.duration : DEFAULT_DURATION;
+    let scenes = raw.scenes ?? [];
+    if (raw.schemaVersion !== 2 && raw.backgroundId) scenes = [newScene(raw.backgroundId, Math.max(DEFAULT_DURATION, duration))];
     const characters: CharacterInstance[] = (raw.characters ?? []).map(c => ({ ...c, timeline: c.timeline ?? emptyTimeline() }));
     return {
-      schemaVersion: 1,
-      backgroundId: raw.backgroundId ?? null,
+      schemaVersion: 2,
+      scenes,
       characters,
       dialogues: raw.dialogues ?? [],
       audioClips: raw.audioClips ?? [],
       audioAssets: raw.audioAssets ?? [],
-      duration: typeof raw.duration === 'number' ? raw.duration : DEFAULT_DURATION,
+      duration,
     };
   }
 

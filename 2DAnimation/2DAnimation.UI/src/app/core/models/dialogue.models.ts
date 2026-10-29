@@ -19,6 +19,8 @@ export interface AudioClip {
   assetId: string;
   start: Ms;
   duration: Ms;
+  /** Where in the audio file this clip begins playing (ms). Missing = 0. Set when a clip is split, so the second part plays the second half. */
+  offset?: Ms;
   /** Character whose mouth follows this audio (instanceId). Optional. */
   characterId?: string;
 }

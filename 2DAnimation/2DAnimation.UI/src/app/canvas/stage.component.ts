@@ -94,8 +94,12 @@ export class StageComponent implements AfterViewInit, OnDestroy {
       if (!this.ready()) return;
       const state = this.scene.state();
       const selectedId = this.scene.selectedId();
-      void this.syncBackground(state.backgroundId);
       this.syncCharacters(state.characters, selectedId);
+    });
+    // The background follows the playhead: it changes only when playback/scrubbing enters another scene.
+    effect(() => {
+      if (!this.ready()) return;
+      void this.syncBackground(this.scene.currentBackgroundId());
     });
   }
 
@@ -135,11 +139,11 @@ export class StageComponent implements AfterViewInit, OnDestroy {
       app.stage.addChild(this.world);
 
       // First run: put the default background + first character on the stage.
-      if (!this.scene.state().backgroundId) {
+      if (this.scene.state().scenes.length === 0) {
         const manifest = await this.assets.getManifest();
         const bg = manifest.backgrounds[0];
         const ch = manifest.characters[0];
-        if (bg && !this.scene.state().backgroundId) this.scene.setBackground(bg.id);
+        if (bg && this.scene.state().scenes.length === 0) this.scene.addScene(bg.id, this.playback.duration());
         if (ch && this.scene.state().characters.length === 0) {
           const { def } = bg ? await this.assets.getBackground(bg.id) : { def: undefined };
           // A saved project may have been opened while the assets were loading: do not add a second character then.
@@ -197,7 +201,13 @@ export class StageComponent implements AfterViewInit, OnDestroy {
   }
 
   private async syncBackground(id: string | null): Promise<void> {
-    if (!id || id === this.currentBackgroundId) return;
+    if (!id) {
+      // Every scene was deleted: show the empty stage instead of the last picture.
+      this.currentBackgroundId = null;
+      this.backgroundLayer.removeChildren().forEach(c => c.destroy());
+      return;
+    }
+    if (id === this.currentBackgroundId) return;
     this.currentBackgroundId = id;
     try {
       const { def, baseUrl } = await this.assets.getBackground(id);

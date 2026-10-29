@@ -1,8 +1,11 @@
 import { Injectable, computed, inject, signal } from '@angular/core';
+import { duplicateClip, resizeClip } from '../animation/clip-edits';
 import { CharacterTimeline, canAppend, emptyTimeline, evaluatePosition, findClip, timelineEnd } from '../animation/animation-engine';
 import { estimateSpeechMs } from '../dialogue/lipsync';
 import * as Speech from '../dialogue/speech-edits';
 import { RigDefinition } from '../models/asset.models';
+import * as Scenes from '../models/scene-segments';
+import { DEFAULT_SCENE_MS, SceneSegment, sceneAt, scenesEnd } from '../models/scene-segments';
 import { AudioClip, DialogueClip, SpeechData } from '../models/dialogue.models';
 import { PlaybackService } from './playback.service';
 
@@ -25,7 +28,8 @@ export interface CharacterInstance {
 }
 
 export interface SceneState {
-  backgroundId: string | null;
+  /** Scenes (backgrounds) that play one after another on the timeline. */
+  scenes: SceneSegment[];
   characters: CharacterInstance[];
   /** Speech bubbles (Phase 4). */
   dialogues: DialogueClip[];
@@ -39,6 +43,9 @@ export function prettyCharacterName(characterId: string): string {
 }
 
 
+/** The action block currently selected in the timeline. `id` is the TimelineClip id. */
+export interface ActionSelection { instanceId: string; id: string }
+
 /** The dialogue/audio block currently selected in the timeline. */
 export interface ClipSelection { kind: 'dialogue' | 'audio'; id: string }
 
@@ -46,8 +53,14 @@ export interface ClipSelection { kind: 'dialogue' | 'audio'; id: string }
 @Injectable({ providedIn: 'root' })
 export class SceneStateService {
   private readonly playback = inject(PlaybackService);
-  readonly state = signal<SceneState>({ backgroundId: null, characters: [], dialogues: [], audioClips: [] });
+  readonly state = signal<SceneState>({ scenes: [], characters: [], dialogues: [], audioClips: [] });
   readonly selectedId = signal<string | null>(null);
+  /** Background that is on screen at the playhead. Only changes when the playhead crosses into another scene. */
+  readonly currentBackgroundId = computed(() => sceneAt(this.state().scenes, this.playback.time())?.backgroundId ?? null);
+  /** Scene block selected in the timeline (null when none). */
+  readonly selectedSceneId = signal<string | null>(null);
+  /** Action block selected in the timeline (null when none). Only one block of any kind is selected at a time. */
+  readonly selectedAction = signal<ActionSelection | null>(null);
   readonly selected = computed(
     () => this.state().characters.find(c => c.instanceId === this.selectedId()) ?? null
   );
@@ -81,14 +94,55 @@ export class SceneStateService {
     this.state.set(scene);
     this.selectedId.set(scene.characters[0]?.instanceId ?? null);
     this.selectedClip.set(null);
+    this.selectedSceneId.set(null);
+    this.selectedAction.set(null);
   }
 
   resetScene(): void {
-    this.loadScene({ backgroundId: null, characters: [], dialogues: [], audioClips: [] });
+    this.loadScene({ scenes: [], characters: [], dialogues: [], audioClips: [] });
   }
 
-  setBackground(backgroundId: string): void {
-    this.state.update(s => ({ ...s, backgroundId }));
+  // ------------------------------------------------------------ scenes (backgrounds one after another)
+
+  /** Adds a scene after the last one and makes the timeline long enough to show it. */
+  addScene(backgroundId: string, durationMs: number = DEFAULT_SCENE_MS): string {
+    const scene = Scenes.newScene(backgroundId, durationMs);
+    this.applyScenes(Scenes.appendScene(this.state().scenes, scene));
+    this.selectedSceneId.set(scene.id);
+    return scene.id;
+  }
+
+  removeScene(id: string): void {
+    this.applyScenes(Scenes.removeScene(this.state().scenes, id));
+    if (this.selectedSceneId() === id) this.selectedSceneId.set(null);
+  }
+
+  resizeScene(id: string, durationMs: number): void { this.applyScenes(Scenes.resizeScene(this.state().scenes, id, durationMs)); }
+
+  moveScene(id: string, toIndex: number): void { this.applyScenes(Scenes.moveScene(this.state().scenes, id, toIndex)); }
+
+  changeSceneBackground(id: string, backgroundId: string): void {
+    this.applyScenes(Scenes.setSceneBackground(this.state().scenes, id, backgroundId));
+  }
+
+  /** Cuts the scene under `timeMs` in two (same background). Does nothing near a scene edge. */
+  splitSceneAt(timeMs: number): void { this.applyScenes(Scenes.splitScene(this.state().scenes, timeMs)); }
+
+  selectScene(id: string | null): void {
+    this.selectedSceneId.set(id);
+    if (id) { this.selectedClip.set(null); this.selectedAction.set(null); }
+  }
+
+  duplicateScene(id: string): void {
+    const before = new Set(this.state().scenes.map(s => s.id));
+    this.applyScenes(Scenes.duplicateScene(this.state().scenes, id));
+    const copy = this.state().scenes.find(s => !before.has(s.id));
+    if (copy) this.selectScene(copy.id);
+  }
+
+  private applyScenes(scenes: SceneSegment[]): void {
+    this.state.update(s => ({ ...s, scenes }));
+    this.playback.ensureDuration(scenesEnd(scenes));
   }
 
   addCharacter(characterId: string, x: number, y: number, scale: number): string {
@@ -114,7 +168,8 @@ export class SceneStateService {
     const check = canAppend(rig, inst.timeline, clipId);
     if (!check.ok) return check;
 
-    const start = timelineEnd(inst.timeline);
+    // Starts at the playhead, but never before this character's previous action ends. This lets two characters act one after the other.
+    const start = Math.max(timelineEnd(inst.timeline), Math.round(this.playback.time()));
     const duration = Math.max(100, Math.round(durationMs ?? (def.loop ? def.duration * 2 : def.duration)));
     const clips = [...inst.timeline.clips, { id: crypto.randomUUID().slice(0, 8), clipId, start, duration, speed: 1 }];
     let positionKeys = [...inst.timeline.positionKeys];
@@ -133,6 +188,8 @@ export class SceneStateService {
   removeClip(instanceId: string, timelineClipId: string): void {
     const inst = this.state().characters.find(c => c.instanceId === instanceId);
     if (inst) this.patchTimeline(instanceId, { clips: inst.timeline.clips.filter(c => c.id !== timelineClipId) });
+    const sel = this.selectedAction();
+    if (sel?.id === timelineClipId) this.selectedAction.set(null);
   }
 
   clearTimeline(instanceId: string): void {
@@ -171,6 +228,63 @@ export class SceneStateService {
 
   selectClip(sel: ClipSelection | null): void {
     this.selectedClip.set(sel);
+    if (sel) { this.selectedSceneId.set(null); this.selectedAction.set(null); }
+  }
+
+  selectAction(sel: ActionSelection | null): void {
+    this.selectedAction.set(sel);
+    if (sel) { this.selectedSceneId.set(null); this.selectedClip.set(null); this.selectedId.set(sel.instanceId); }
+  }
+
+  /** Makes an action longer/shorter. Later actions of the same character slide along. */
+  resizeClip(instanceId: string, rig: RigDefinition, timelineClipId: string, durationMs: number): void {
+    const inst = this.state().characters.find(c => c.instanceId === instanceId);
+    if (!inst) return;
+    const timeline = resizeClip(rig, inst, inst.timeline, timelineClipId, durationMs);
+    if (timeline === inst.timeline) return;
+    this.patchTimeline(instanceId, timeline);
+    this.playback.ensureDuration(timelineEnd(timeline) + 1000);
+  }
+
+  /** Copies an action right after the original. */
+  duplicateClip(instanceId: string, rig: RigDefinition, timelineClipId: string): { ok: boolean; reason?: string } {
+    const inst = this.state().characters.find(c => c.instanceId === instanceId);
+    if (!inst) return { ok: false, reason: 'Unknown character' };
+    const newId = crypto.randomUUID().slice(0, 8);
+    const res = duplicateClip(rig, inst, inst.timeline, timelineClipId, newId);
+    if (!res.ok) return res;
+    this.patchTimeline(instanceId, res.timeline);
+    this.playback.ensureDuration(timelineEnd(res.timeline) + 1000);
+    this.selectAction({ instanceId, id: newId });
+    return { ok: true };
+  }
+
+  duplicateDialogue(id: string): void {
+    const newId = crypto.randomUUID().slice(0, 8);
+    this.applySpeech(Speech.duplicateDialogue(this.speech(), id, newId));
+    if (this.state().dialogues.some(d => d.id === newId)) this.selectClip({ kind: 'dialogue', id: newId });
+  }
+
+  duplicateAudio(id: string): void {
+    const newId = crypto.randomUUID().slice(0, 8);
+    this.applySpeech(Speech.duplicateAudio(this.speech(), id, newId));
+    if (this.state().audioClips.some(a => a.id === newId)) this.selectClip({ kind: 'audio', id: newId });
+  }
+
+  /** Duplicates whatever block is selected (Ctrl+D). Returns an error text when it is refused. */
+  duplicateSelected(rigFor: (characterId: string) => RigDefinition | undefined): string | null {
+    const clip = this.selectedClip();
+    if (clip) { if (clip.kind === 'dialogue') this.duplicateDialogue(clip.id); else this.duplicateAudio(clip.id); return null; }
+    const sceneId = this.selectedSceneId();
+    if (sceneId) { this.duplicateScene(sceneId); return null; }
+    const act = this.selectedAction();
+    if (act) {
+      const inst = this.state().characters.find(c => c.instanceId === act.instanceId);
+      const rig = inst ? rigFor(inst.characterId) : undefined;
+      if (!rig) return 'Character is still loading. Try again in a moment.';
+      return this.duplicateClip(act.instanceId, rig, act.id).reason ?? null;
+    }
+    return null;
   }
 
   /** Adds a speech bubble for a character. Length defaults to a natural speaking time for the text. */
@@ -213,6 +327,16 @@ export class SceneStateService {
     this.applySpeech(Speech.attachAudio(this.speech(), dialogueId, audio));
     const d = this.state().dialogues.find(x => x.id === dialogueId);
     if (d) this.playback.ensureDuration(d.start + d.duration + 1000);
+  }
+
+  /** Splits an audio clip at `timeMs`. Returns false when the time is not inside the clip. The right-hand part becomes selected. */
+  splitAudioAt(id: string, timeMs: number): boolean {
+    const newId = crypto.randomUUID().slice(0, 8);
+    const next = Speech.splitAudio(this.speech(), id, timeMs, newId);
+    if (!next) return false;
+    this.applySpeech(next);
+    this.selectClip({ kind: 'audio', id: newId });
+    return true;
   }
 
   moveAudio(id: string, start: number): void { this.applySpeech(Speech.moveAudio(this.speech(), id, start)); }

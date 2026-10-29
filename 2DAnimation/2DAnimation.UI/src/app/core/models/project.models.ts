@@ -1,5 +1,6 @@
 import type { AudioClip, DialogueClip } from './dialogue.models';
 import type { CharacterInstance } from '../services/scene-state.service';
+import type { SceneSegment } from './scene-segments';
 
 /** One row of the "Open project" list (matches the API's ProjectSummaryDto). */
 export interface ProjectSummary {
@@ -21,10 +22,11 @@ export interface SavedAudioAsset {
   duration: number;
 }
 
-/** The scene document stored in Projects.SceneJson. Bump schemaVersion when the shape changes. */
-export interface SceneFileV1 {
-  schemaVersion: 1;
-  backgroundId: string | null;
+/** The scene document stored in Projects.SceneJson. Bump schemaVersion when the shape changes.
+ *  v1 had a single `backgroundId`; v2 has `scenes[]`. Old v1 files are upgraded when opened (see ProjectService.parse). */
+export interface SceneFileV2 {
+  schemaVersion: 2;
+  scenes: SceneSegment[];
   characters: CharacterInstance[];
   dialogues: DialogueClip[];
   audioClips: AudioClip[];

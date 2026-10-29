@@ -44,6 +44,27 @@
   </button>
 </div>
 
+@if (selectedActionInfo(); as a) {
+  <div class="strip">
+    <span class="name" [title]="a.who + ' · ' + a.name">⚡ {{ a.who }} · {{ a.name }}</span>
+    <label>Start (s) <input class="num" type="number" [value]="sec(a.start)" disabled title="Actions start at the playhead when you add them. Make earlier actions longer or shorter to shift this one." /></label>
+    <label>Length (s) <input class="num" type="number" [min]="0.1" step="0.1" [value]="sec(a.duration)" (change)="onActionLength(a, $event)" /></label>
+    <button type="button" (click)="duplicateSelected()" title="Copy this action right after itself (Ctrl+D)">Duplicate</button>
+    <button type="button" class="danger" (click)="removeAction(a)" title="Delete (Del key)">Delete</button>
+  </div>
+}
+
+@if (selectedScene(); as sc) {
+  <div class="strip">
+    <span class="name" [title]="sc.name">🖼 {{ sc.name }}</span>
+    <label>Start (s) <input class="num" type="number" [value]="sec(sc.start)" disabled title="Scenes play one after another. Drag the block to reorder." /></label>
+    <label>Length (s) <input class="num" type="number" [min]="0.5" step="0.1" [value]="sec(sc.duration)" (change)="onSceneLength(sc.id, $event)" /></label>
+    <button type="button" (click)="duplicateSelected()" title="Copy this scene right after itself (Ctrl+D)">Duplicate</button>
+    <button type="button" (click)="splitAtPlayhead()" title="Cut the scene in two at the playhead">Split at playhead</button>
+    <button type="button" class="danger" (click)="removeScene(sc.id)" title="Delete (Del key)">Delete scene</button>
+  </div>
+}
+
 @if (selectedDialogue(); as d) {
   <div class="strip">
     <label>Character
@@ -60,6 +81,7 @@
     <label>Length (s) <input class="num" type="number" min="0.2" step="0.1" [value]="sec(d.duration)" [disabled]="!!d.audioId" (change)="onDialogueLength(d.id, $event)" /></label>
     <button type="button" (click)="fitText(d.id, d.text)" [disabled]="!!d.audioId" title="Set the length from the text">Fit text</button>
     <button type="button" (click)="attach(d.id)">{{ d.audioId ? 'Replace audio' : 'Attach audio' }}</button>
+    <button type="button" (click)="duplicateSelected()" title="Copy this line right after itself (Ctrl+D)">Duplicate</button>
     <button type="button" class="danger" (click)="removeSelected()" title="Delete (Del key)">Delete</button>
   </div>
 }
@@ -77,6 +99,8 @@
     </label>
     <label>Start (s) <input class="num" type="number" min="0" step="0.1" [value]="sec(a.start)" (change)="onAudioStart(a.id, $event)" /></label>
     <span class="dim">{{ sec(a.duration) }} s</span>
+    <button type="button" (click)="splitAudio(a.id)" title="Cut this audio in two at the playhead">Split at playhead</button>
+    <button type="button" (click)="duplicateSelected()" title="Copy this audio right after itself (Ctrl+D)">Duplicate</button>
     <button type="button" class="danger" (click)="removeSelected()" title="Delete (Del key)">Delete</button>
   </div>
 }
@@ -101,19 +125,19 @@
       @for (row of rows(); track row.key) {
         <div class="lane" [class.audio]="row.kind === 'audio'">
           @if (row.blocks.length === 0 && row.kind !== 'action') {
-            <span class="empty">{{ row.kind === 'audio' ? 'Import audio to see it here' : 'No dialogue yet. Use + Dialogue' }}</span>
+            <span class="empty">{{ row.kind === 'scene' ? 'Click a picture in the Scenes panel to add a scene' : row.kind === 'audio' ? 'Import audio to see it here' : 'No dialogue yet. Use + Dialogue' }}</span>
           }
           @for (b of row.blocks; track b.id) {
-            <div class="block" [class.sel]="b.selected" [class.action]="b.kind === 'action'" [class.linked]="b.linked"
+            <div class="block" [class.sel]="b.selected" [class.action]="b.kind === 'action'" [class.scene]="b.kind === 'scene'" [class.linked]="b.linked"
                  [style.left.px]="b.left" [style.width.px]="b.width" [style.--c]="b.color" [title]="b.title"
                  (pointerdown)="onBlockDown($event, row, b)" (pointermove)="onBlockMove($event)"
                  (pointerup)="onBlockUp()" (pointercancel)="onBlockUp()">
               @if (b.wave) {
-                <svg class="wave" viewBox="0 0 240 20" preserveAspectRatio="none" aria-hidden="true"><path [attr.d]="b.wave" /></svg>
+                <svg class="wave" [attr.viewBox]="b.waveBox ?? '0 0 240 20'" preserveAspectRatio="none" aria-hidden="true"><path [attr.d]="b.wave" /></svg>
               }
               <span class="txt" [attr.lang]="b.kind === 'dialogue' ? 'hi' : null">{{ b.label }}</span>
-              @if (b.kind === 'dialogue' && !b.linked) {
-                <span class="handle" title="Drag to change length"
+              @if ((b.kind === 'dialogue' && !b.linked) || b.kind === 'scene' || b.kind === 'action') {
+                <span class="handle" [title]="b.kind === 'scene' ? 'Drag to change the scene length' : b.kind === 'action' ? 'Drag to change how long this action lasts' : 'Drag to change length'"
                       (pointerdown)="onBlockDown($event, row, b, 'resize')" (pointermove)="onBlockMove($event)"
                       (pointerup)="onBlockUp()" (pointercancel)="onBlockUp()"></span>
               }

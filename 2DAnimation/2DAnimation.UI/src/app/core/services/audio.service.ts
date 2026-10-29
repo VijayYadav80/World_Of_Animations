@@ -121,8 +121,9 @@ export class AudioService {
       src.buffer = asset.buffer;
       src.playbackRate.value = rate;
       src.connect(this.master);
-      if (t < clip.start) src.start(now + (clip.start - t) / 1000 / rate, 0, clip.duration / 1000);
-      else src.start(now, (t - clip.start) / 1000, (end - t) / 1000);
+      const offset = (clip.offset ?? 0) / 1000; // seconds into the file (non-zero for the later part of a split clip)
+      if (t < clip.start) src.start(now + (clip.start - t) / 1000 / rate, offset, clip.duration / 1000);
+      else src.start(now, offset + (t - clip.start) / 1000, (end - t) / 1000);
       this.sources.push(src);
     }
   }

@@ -51,6 +51,41 @@ export function attachAudio(s: SpeechData, dialogueId: string, audio: AudioClip)
   };
 }
 
+/** Copies a dialogue line right after the original (same text and character, no audio). */
+export function duplicateDialogue(s: SpeechData, id: string, newId: string): SpeechData {
+  const d = s.dialogues.find(x => x.id === id);
+  if (!d) return s;
+  return { ...s, dialogues: [...s.dialogues, { ...d, id: newId, start: d.start + d.duration, audioId: undefined }] };
+}
+
+/** Copies an audio clip right after the original (same file, same lip-sync character; not linked to any dialogue line). */
+export function duplicateAudio(s: SpeechData, id: string, newId: string): SpeechData {
+  const a = s.audioClips.find(x => x.id === id);
+  if (!a) return s;
+  return { ...s, audioClips: [...s.audioClips, { ...a, id: newId, start: a.start + a.duration }] };
+}
+
+export const MIN_AUDIO_PART_MS = 100;
+
+/**
+ * Cuts an audio clip in two at timeline time `t`. Both parts play exactly what the original played (no gap, no repeat):
+ * the second part starts later in the same file (offset). Returns null when `t` is not inside the clip
+ * or too close to an edge (each part must be at least MIN_AUDIO_PART_MS long).
+ * A dialogue line linked to the clip stays with the FIRST part and shrinks to its length; the second part is plain audio.
+ */
+export function splitAudio(s: SpeechData, id: string, t: number, newId: string): SpeechData | null {
+  const a = s.audioClips.find(x => x.id === id);
+  if (!a) return null;
+  const cut = Math.round(t) - a.start;
+  if (cut < MIN_AUDIO_PART_MS || cut > a.duration - MIN_AUDIO_PART_MS) return null;
+  const first: AudioClip = { ...a, duration: cut };
+  const second: AudioClip = { ...a, id: newId, start: a.start + cut, duration: a.duration - cut, offset: (a.offset ?? 0) + cut };
+  return {
+    dialogues: s.dialogues.map(x => (x.audioId === id ? { ...x, duration: cut } : x)),
+    audioClips: s.audioClips.flatMap(x => (x.id === id ? [first, second] : [x])),
+  };
+}
+
 export function removeAudio(s: SpeechData, id: string): SpeechData {
   return {
     dialogues: s.dialogues.map(x => (x.audioId === id ? { ...x, audioId: undefined } : x)),

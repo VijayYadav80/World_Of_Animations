@@ -19,7 +19,7 @@ import { SceneStateService } from '../core/services/scene-state.service';
           <span class="avatar">{{ r.displayName.charAt(0).toUpperCase() }}</span>
           <div>
             <h3>{{ r.displayName }}</h3>
-            <small>Tap an action to add it to the timeline</small>
+            <small>Tap an action: it starts at the playhead (or after this character's last action)</small>
           </div>
         </header>
 
