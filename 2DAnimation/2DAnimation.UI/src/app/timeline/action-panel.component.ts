@@ -19,7 +19,7 @@ import { SceneStateService } from '../core/services/scene-state.service';
           <span class="avatar">{{ r.displayName.charAt(0).toUpperCase() }}</span>
           <div>
             <h3>{{ r.displayName }}</h3>
-            <small>Tap an action: it starts at the playhead (or after this character's last action)</small>
+            <small>Preview and add actions. Dance, Fight and Angry are ready to use.</small>
           </div>
         </header>
 
@@ -32,7 +32,7 @@ import { SceneStateService } from '../core/services/scene-state.service';
           </div>
           <div class="actions">
             @for (a of r.animations; track a.id) {
-              <button type="button" [disabled]="!availability()[a.id].ok" [attr.title]="availability()[a.id].reason ?? a.note ?? ''" (click)="add(r, a.id)">
+              <button type="button" [disabled]="!availability()[a.id].ok" [attr.title]="availability()[a.id].reason ?? a.note ?? ('Preview and add ' + a.displayName)" (click)="preview(r, a.id)">
                 {{ a.displayName }}@if (a.status !== 'complete') { <small>·wip</small> }
               </button>
             }
@@ -139,6 +139,14 @@ export class ActionPanelComponent {
     const res = this.scene.appendClip(id, r, clipId, dur);
     this.message.set(res.ok ? null : (res.reason ?? 'Cannot add this action'));
     return res.ok;
+  }
+
+  /** Adds the action at the next valid point, then plays from there so its result is visible immediately. */
+  protected preview(r: RigDefinition, clipId: string): void {
+    const id = this.scene.selectedId();
+    if (!id || !this.add(r, clipId)) return;
+    const newest = [...(this.scene.selected()?.timeline.clips ?? [])].sort((a, b) => b.start - a.start)[0];
+    if (newest) { this.playback.seek(newest.start); this.playback.play(); }
   }
 
   protected demo(r: RigDefinition): void {

@@ -41,7 +41,7 @@ export class LeftSidebarComponent {
     { id: 'characters', label: 'Cast', title: 'Characters' },
     { id: 'props', label: 'Props', title: 'Props' },
     { id: 'dialogue', label: 'Lines', title: 'Dialogue' },
-    { id: 'audio', label: 'Audio', title: 'Audio' },
+    { id: 'audio', label: 'Audio + Rec', title: 'Audio & Recording' },
   ];
   readonly activeId = signal<TabId>('backgrounds');
   private readonly libraryBackgrounds = signal<BgItem[]>([]);
@@ -73,6 +73,9 @@ export class LeftSidebarComponent {
   readonly audioMessage = signal<string | null>(null);
   readonly propMessage = signal<string | null>(null);
   readonly busy = signal(false);
+  readonly recording = signal(false);
+  private recorder?: MediaRecorder;
+  private recordedChunks: BlobPart[] = [];
 
   readonly draftText = signal('');
   readonly draftCharacter = signal('');
@@ -277,6 +280,47 @@ export class LeftSidebarComponent {
   onAudioVoice(ev: Event): void { this.audioVoice.set((ev.target as HTMLSelectElement).value); }
 
   pickAudio(): void { this.attachTarget = null; this.audioInput?.nativeElement.click(); }
+
+  async startRecording(): Promise<void> {
+    this.audioMessage.set(null);
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      this.recordedChunks = [];
+      const mimeType = ['audio/webm;codecs=opus', 'audio/webm', 'audio/mp4'].find(t => MediaRecorder.isTypeSupported(t));
+      this.recorder = new MediaRecorder(stream, mimeType ? { mimeType } : undefined);
+      this.recorder.ondataavailable = e => { if (e.data.size) this.recordedChunks.push(e.data); };
+      this.recorder.onstop = () => {
+        stream.getTracks().forEach(track => track.stop());
+        const type = this.recorder?.mimeType || 'audio/webm';
+        const ext = type.includes('mp4') ? 'm4a' : 'webm';
+        const file = new File(this.recordedChunks, `Voice recording ${new Date().toLocaleTimeString()}.${ext}`, { type });
+        void this.saveRecording(file);
+      };
+      this.recorder.start();
+      this.recording.set(true);
+    } catch (e) {
+      this.audioMessage.set(e instanceof Error && e.name === 'NotAllowedError' ? 'Microphone access was denied. Allow microphone access and try again.' : errorText(e));
+    }
+  }
+
+  stopRecording(): void {
+    if (!this.recorder || this.recorder.state === 'inactive') return;
+    this.recording.set(false);
+    this.recorder.stop();
+  }
+
+  private async saveRecording(file: File): Promise<void> {
+    this.busy.set(true);
+    try {
+      const asset = await this.audio.importFile(file);
+      this.scene.addAudio(asset, this.playback.time(), this.audioVoice() || this.scene.selectedId() || undefined);
+      this.audioMessage.set('Recording added to the timeline.');
+    } catch (e) {
+      this.audioMessage.set(errorText(e));
+    } finally {
+      this.busy.set(false);
+    }
+  }
 
   attachAudio(dialogueId: string): void { this.attachTarget = dialogueId; this.audioInput?.nativeElement.click(); }
 

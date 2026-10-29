@@ -28,13 +28,13 @@ export class AssetManifestService {
       await this.userAssets.ready;
       const mine = this.userAssets.characters().find(c => c.id === characterId);
       if (!mine) throw new Error(`The imported character "${characterId}" is no longer stored in this browser.`);
-      return { def: mine.rig, baseUrl: '' };
+      return { def: withBuiltInActions(mine.rig), baseUrl: '' };
     }
     const entry = (await this.getManifest()).characters.find(c => c.id === characterId);
     if (!entry) throw new Error(`Character "${characterId}" is not listed in assets/manifest.json`);
     const url = ASSET_ROOT + entry.rig;
     if (!this.rigs.has(characterId)) this.rigs.set(characterId, firstValueFrom(this.http.get<RigDefinition>(url)));
-    const def = await this.rigs.get(characterId)!;
+    const def = withBuiltInActions(await this.rigs.get(characterId)!);
     return { def, baseUrl: url.substring(0, url.lastIndexOf('/') + 1) };
   }
 
@@ -112,6 +112,46 @@ export class AssetManifestService {
     }
     throw new Error(`Prop "${propId}" in assets/manifest.json needs a "meta" (JSON file) or an "image".`);
   }
+}
+
+/** Adds reusable, rig-bone based actions to every built-in and imported character. */
+function withBuiltInActions(rig: RigDefinition): RigDefinition {
+  const existing = new Set(rig.animations.map(a => a.id));
+  const track = (...values: [number, number][]) => values;
+  const action = (id: string, displayName: string, duration: number, loop: boolean, rotations: Record<string, [number, number][]>) => ({
+    id, displayName, duration, loop, additive: true, startPosture: 'inherit' as const,
+    endPosture: 'inherit' as const, status: 'complete' as const, rotations, offsets: {},
+  });
+  const generated = [
+    action('dance', 'Dance', 1600, true, {
+      torso: track([0, -5], [400, 6], [800, -5], [1200, 6], [1600, -5]),
+      upperArmF: track([0, -28], [400, -72], [800, -28], [1200, -72], [1600, -28]),
+      forearmF: track([0, -18], [400, 28], [800, -18], [1200, 28], [1600, -18]),
+      upperArmB: track([0, 28], [400, 72], [800, 28], [1200, 72], [1600, 28]),
+      forearmB: track([0, 18], [400, -28], [800, 18], [1200, -28], [1600, 18]),
+      upperLegF: track([0, -8], [400, 12], [800, -8], [1200, 12], [1600, -8]),
+      upperLegB: track([0, 8], [400, -12], [800, 8], [1200, -12], [1600, 8]),
+      head: track([0, 3], [400, -3], [800, 3], [1200, -3], [1600, 3]),
+    }),
+    action('fight', 'Fight', 1200, false, {
+      torso: track([0, 0], [250, -12], [500, 10], [850, -16], [1200, 0]),
+      upperArmF: track([0, -10], [250, -80], [500, 42], [850, -92], [1200, -10]),
+      forearmF: track([0, -10], [250, 35], [500, -92], [850, 25], [1200, -10]),
+      upperArmB: track([0, 14], [250, 70], [500, -40], [850, 80], [1200, 14]),
+      forearmB: track([0, 10], [250, -30], [500, 82], [850, -25], [1200, 10]),
+      upperLegF: track([0, 0], [250, -12], [500, 9], [850, -8], [1200, 0]),
+      head: track([0, 0], [250, -8], [500, 8], [850, -10], [1200, 0]),
+    }),
+    action('angry', 'Angry', 1400, true, {
+      torso: track([0, 0], [180, 3], [360, 0], [540, 3], [700, 0], [1400, 0]),
+      head: track([0, -4], [180, 3], [360, -4], [540, 3], [700, -4], [1400, -4]),
+      upperArmF: track([0, -12], [180, -20], [360, -12], [540, -20], [700, -12], [1400, -12]),
+      forearmF: track([0, -12], [180, -24], [360, -12], [540, -24], [700, -12], [1400, -12]),
+      upperArmB: track([0, 12], [180, 20], [360, 12], [540, 20], [700, 12], [1400, 12]),
+      forearmB: track([0, 12], [180, 24], [360, 12], [540, 24], [700, 12], [1400, 12]),
+    }),
+  ].filter(a => !existing.has(a.id));
+  return generated.length ? { ...rig, animations: [...rig.animations, ...generated] } : rig;
 }
 
 /** Accepts the usual spellings of the image field so a hand-written prop JSON does not need to match exactly. */

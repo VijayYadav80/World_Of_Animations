@@ -193,6 +193,12 @@
 
     @case ('audio') {
       <div class="composer">
+        <p class="hint">Add audio at the playhead:</p>
+        <div class="audio-actions">
+          <button type="button" class="primary" (click)="pickAudio()" [disabled]="busy()">Import audio</button>
+          @if (!recording()) { <button type="button" class="record-button" (click)="startRecording()" [disabled]="busy()">? Record</button> }
+          @else { <button type="button" class="danger record-button is-recording" (click)="stopRecording()">¦ Stop</button> }
+        </div>
         <label>Voice of (mouth follows the sound)
           <select (change)="onAudioVoice($event)">
             <option value="" [selected]="!audioVoice()">Selected character</option>
@@ -201,7 +207,6 @@
             }
           </select>
         </label>
-        <button type="button" class="primary wide" (click)="pickAudio()" [disabled]="busy()">+ Import audio at {{ seconds(playback.time()) }}s</button>
         @if (scene.selectedDialogue(); as d) {
           <button type="button" class="wide" (click)="attachAudio(d.id)" [disabled]="busy()">Attach audio to the selected line</button>
         }
@@ -223,7 +228,7 @@
           <div class="empty-state">
             <span class="badge"><svg viewBox="0 0 24 24" class="i"><path d="M9 18V5l11-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="17" cy="16" r="3"/></svg></span>
             <strong>No audio yet</strong>
-            <span>Imported voice files will be listed here.</span>
+            <span>Import a file or record your voice directly into the timeline.</span>
           </div>
         }
       </div>
