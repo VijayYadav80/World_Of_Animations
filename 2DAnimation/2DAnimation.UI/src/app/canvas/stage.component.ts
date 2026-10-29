@@ -2,7 +2,9 @@ import {
   AfterViewInit, ChangeDetectionStrategy, Component, ElementRef, NgZone, OnDestroy, ViewChild, effect, inject, signal,
 } from '@angular/core';
 import { Application, Assets, Container, FederatedPointerEvent, Graphics, Rectangle, Sprite, Texture } from 'pixi.js';
+import { evaluatePose, evaluatePosition } from '../core/animation/animation-engine';
 import { AssetManifestService } from '../core/services/asset-manifest.service';
+import { PlaybackService } from '../core/services/playback.service';
 import { CharacterInstance, SceneStateService, STAGE_HEIGHT, STAGE_WIDTH } from '../core/services/scene-state.service';
 import { RigCharacter } from './rig/rig-character';
 
@@ -42,6 +44,7 @@ export class StageComponent implements AfterViewInit, OnDestroy {
   private readonly scene = inject(SceneStateService);
   private readonly assets = inject(AssetManifestService);
   private readonly zone = inject(NgZone);
+  private readonly playback = inject(PlaybackService);
 
   readonly loading = signal(true);
   readonly error = signal<string | null>(null);
@@ -97,6 +100,8 @@ export class StageComponent implements AfterViewInit, OnDestroy {
       app.stage.on('pointerup', () => (this.dragging = undefined));
       app.stage.on('pointerupoutside', () => (this.dragging = undefined));
 
+      // Every frame: pose + position come from the deterministic engine at the current playhead time.
+      app.ticker.add(() => this.tick());
       this.characterLayer.sortableChildren = true;
       this.world.addChild(this.backgroundLayer, this.characterLayer);
       app.stage.addChild(this.world);
@@ -172,6 +177,17 @@ export class StageComponent implements AfterViewInit, OnDestroy {
     }
   }
 
+  private tick(): void {
+    const selectedId = this.scene.selectedId();
+    const t = this.playback.time();
+    for (const inst of this.scene.state().characters) {
+      const view = this.views.get(inst.instanceId);
+      if (!view) continue;
+      view.rig.applyPose(evaluatePose(view.rig.def, inst.timeline, t));
+      this.applyInstance(view, inst, inst.instanceId === selectedId, evaluatePosition(inst.timeline, t));
+    }
+  }
+
   private syncCharacters(instances: CharacterInstance[], selectedId: string | null): void {
     // remove deleted
     for (const [id, view] of this.views) {
@@ -206,8 +222,9 @@ export class StageComponent implements AfterViewInit, OnDestroy {
         const cur = this.scene.state().characters.find(c => c.instanceId === inst.instanceId);
         if (!cur) return;
         const p = e.getLocalPosition(this.world);
+        const at = evaluatePosition(cur.timeline, this.playback.time()) ?? { x: cur.x, y: cur.y };
         this.scene.select(inst.instanceId);
-        this.dragging = { id: inst.instanceId, dx: cur.x - p.x, dy: cur.y - p.y };
+        this.dragging = { id: inst.instanceId, dx: at.x - p.x, dy: at.y - p.y };
       });
       this.characterLayer.addChild(holder);
 
@@ -222,12 +239,13 @@ export class StageComponent implements AfterViewInit, OnDestroy {
     }
   }
 
-  private applyInstance(view: CharacterView, inst: CharacterInstance, selected: boolean): void {
+  private applyInstance(view: CharacterView, inst: CharacterInstance, selected: boolean, pos?: { x: number; y: number }): void {
     const h = view.holder;
-    h.position.set(inst.x, inst.y);
+    const p = pos ?? { x: inst.x, y: inst.y };
+    h.position.set(p.x, p.y);
     h.scale.set(inst.flipX ? -inst.scale : inst.scale, inst.scale);
     h.rotation = ((inst.flipX ? -inst.rotation : inst.rotation) * Math.PI) / 180;
-    h.zIndex = inst.y; // lower on screen = in front
+    h.zIndex = p.y; // lower on screen = in front
     view.selection.visible = selected;
   }
 
@@ -236,6 +254,6 @@ export class StageComponent implements AfterViewInit, OnDestroy {
     const p = e.getLocalPosition(this.world);
     const x = Math.min(STAGE_WIDTH, Math.max(0, p.x + this.dragging.dx));
     const y = Math.min(STAGE_HEIGHT, Math.max(0, p.y + this.dragging.dy));
-    this.scene.updateCharacter(this.dragging.id, { x: Math.round(x), y: Math.round(y) });
+    this.scene.moveCharacter(this.dragging.id, Math.round(x), Math.round(y), this.playback.time());
   }
 }

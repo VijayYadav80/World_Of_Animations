@@ -6,6 +6,7 @@ interface BoneNode {
   container: Container;
   sprite?: Sprite;
   textures: Map<string, Texture>;
+  variant?: string;
 }
 
 const DEG = Math.PI / 180;
@@ -68,10 +69,12 @@ export class RigCharacter {
     return rig;
   }
 
-  /** Sets joint rotations (degrees) and optional part variants. Bones not in the pose keep rotation 0. */
+  /** Sets joint rotations (degrees), position offsets and part variants. Bones not in the pose get rotation 0. */
   applyPose(pose: Pose): void {
     for (const node of this.bones.values()) {
       node.container.rotation = (pose.rotations[node.def.id] ?? 0) * DEG;
+      const o = pose.offsets?.[node.def.id];
+      node.container.position.set(node.def.x + (o?.x ?? 0), node.def.y + (o?.y ?? 0));
     }
     for (const [boneId, variant] of Object.entries(pose.variants ?? {})) this.setVariant(boneId, variant);
   }
@@ -79,7 +82,7 @@ export class RigCharacter {
   setVariant(boneId: string, variant: string): void {
     const node = this.bones.get(boneId);
     const tex = node?.textures.get(variant);
-    if (node?.sprite && tex) node.sprite.texture = tex;
+    if (node?.sprite && tex && node.variant !== variant) { node.sprite.texture = tex; node.variant = variant; }
   }
 
   setExpression(name: string): void {

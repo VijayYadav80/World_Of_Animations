@@ -43,8 +43,34 @@ export interface BoneDefinition {
 export interface Pose {
   /** Bone id -> rotation in degrees (positive = clockwise on screen). */
   rotations: Record<string, number>;
+  /** Bone id -> position offset added to the bone's rig position (px). Used for hip height/shift. */
+  offsets?: Record<string, { x: number; y: number }>;
   /** Bone id -> variant name, e.g. { mouth: 'open' }. */
   variants?: Record<string, string>;
+}
+
+export type Posture = 'stand' | 'sit';
+export type KeyframeTrack<T> = [timeMs: number, value: T][];
+
+/** A data-driven animation clip. Times are milliseconds. Tracks are sampled linearly (variants are stepped). */
+export interface AnimationClip {
+  id: string;
+  displayName: string;
+  duration: number;
+  loop: boolean;
+  /** Additive clips only animate the listed bones; everything else comes from the current posture (stand/sit). */
+  additive: boolean;
+  /** Posture required to start this clip ('inherit' = works in any posture). */
+  startPosture: Posture | 'inherit';
+  endPosture: Posture | 'inherit';
+  /** 'incomplete' clips are shown in the UI as incomplete and cannot be added to the timeline. */
+  status: 'complete' | 'incomplete';
+  rotations: Record<string, KeyframeTrack<number>>;
+  offsets: Record<string, { x?: KeyframeTrack<number>; y?: KeyframeTrack<number> }>;
+  variants?: Record<string, KeyframeTrack<string>>;
+  /** Ground speed in px/s at scale 1, for clips that travel (walk/run). Used to place position keyframes. */
+  groundSpeed?: number;
+  note?: string;
 }
 
 export interface RigDefinition {
@@ -60,6 +86,7 @@ export interface RigDefinition {
   bones: BoneDefinition[];
   defaultPose: Pose;
   expressions: Record<string, Record<string, string>>;
-  /** Filled in Phase 3. */
-  animations: unknown[];
+  animations: AnimationClip[];
+  /** Full-body resting poses for each posture (used under additive clips and in gaps). */
+  poses: Record<Posture, Pose>;
 }
