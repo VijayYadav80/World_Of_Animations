@@ -6,6 +6,7 @@ import { evaluatePose, evaluatePosition } from '../core/animation/animation-engi
 import { activeDialogue, mouthState } from '../core/dialogue/lipsync';
 import { DialogueClip } from '../core/models/dialogue.models';
 import { AudioService } from '../core/services/audio.service';
+import { ExportService } from '../core/services/export.service';
 import { AssetManifestService } from '../core/services/asset-manifest.service';
 import { PlaybackService } from '../core/services/playback.service';
 import {
@@ -88,6 +89,7 @@ export class StageComponent implements AfterViewInit, OnDestroy {
   private readonly zone = inject(NgZone);
   private readonly playback = inject(PlaybackService);
   private readonly audio = inject(AudioService);
+  private readonly exporter = inject(ExportService);
 
   readonly loading = signal(true);
   readonly error = signal<string | null>(null);
@@ -157,6 +159,7 @@ export class StageComponent implements AfterViewInit, OnDestroy {
       app.canvas.style.display = 'block';
       app.canvas.style.touchAction = 'none';
       this.host.nativeElement.appendChild(app.canvas);
+      this.exporter.setCanvas(app.canvas);
 
       app.stage.eventMode = 'static';
       app.stage.hitArea = new Rectangle(0, 0, STAGE_WIDTH, STAGE_HEIGHT);
@@ -195,6 +198,7 @@ export class StageComponent implements AfterViewInit, OnDestroy {
 
   ngOnDestroy(): void {
     this.destroyed = true;
+    this.exporter.setCanvas(null);
     this.resizeObserver?.disconnect();
     this.views.forEach(v => v.rig.destroy());
     this.views.clear();

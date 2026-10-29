@@ -32,6 +32,7 @@ export class AudioService {
   private ctx?: AudioContext;
   private master?: GainNode;
   private sources: AudioBufferSourceNode[] = [];
+  private capture?: MediaStreamAudioDestinationNode;
 
   constructor() {
     // Re-schedule the sounds when play/pause, a seek, the speed or the audio clips change (not on every frame).
@@ -92,6 +93,27 @@ export class AudioService {
 
   /** Lip-sync data for the engine (stage calls this every frame, so it must stay a plain lookup). */
   mouthTrack(assetId: string): MouthTrack | undefined { return this.assets.get(assetId)?.mouth; }
+
+  /**
+   * The preview sound as a MediaStream, for video export. It carries exactly what is played (all audio clips).
+   * Call releaseCapture() when the export is over.
+   */
+  captureStream(): MediaStream | null {
+    try {
+      const ctx = this.context();
+      void ctx.resume();
+      this.capture ??= ctx.createMediaStreamDestination();
+      this.master!.connect(this.capture);
+      return this.capture.stream;
+    } catch {
+      return null; // the video is exported without sound
+    }
+  }
+
+  releaseCapture(): void {
+    if (!this.capture || !this.master) return;
+    try { this.master.disconnect(this.capture); } catch { /* not connected */ }
+  }
 
   private context(): AudioContext {
     if (!this.ctx) {

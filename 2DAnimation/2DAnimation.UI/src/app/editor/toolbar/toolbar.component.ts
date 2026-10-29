@@ -2,6 +2,7 @@ import { Component, HostListener, OnDestroy, OnInit, inject, signal } from '@ang
 import { Subscription, catchError, of, switchMap, timer } from 'rxjs';
 import { ApiHealthService } from '../../core/api/api-health.service';
 import { ProjectSummary } from '../../core/models/project.models';
+import { ExportFormat, ExportService } from '../../core/services/export.service';
 import { PlaybackService } from '../../core/services/playback.service';
 import { ProjectService } from '../../core/services/project.service';
 import { ThemeService } from '../../core/services/theme.service';
@@ -18,12 +19,18 @@ export class ToolbarComponent implements OnInit, OnDestroy {
   private readonly playback = inject(PlaybackService);
   protected readonly project = inject(ProjectService);
   protected readonly theme = inject(ThemeService);
+  protected readonly exporter = inject(ExportService);
   private sub?: Subscription;
 
   readonly apiState = signal<LinkState>('checking');
   readonly dbState = signal<LinkState>('checking');
 
   readonly dialogOpen = signal(false);
+
+  // ------------------------------------------------------------ video export
+  readonly exportOpen = signal(false);
+  readonly exportFormatId = signal<ExportFormat['id']>(this.exporter.formats[0]?.id ?? 'webm');
+  readonly exportFps = signal(30);
   readonly projects = signal<ProjectSummary[]>([]);
   readonly listLoading = signal(false);
   readonly listError = signal<string | null>(null);
@@ -81,6 +88,25 @@ export class ToolbarComponent implements OnInit, OnDestroy {
 
   closeDialog(): void { this.dialogOpen.set(false); }
 
+  openExport(): void { this.playback.pause(); this.exportOpen.set(true); }
+
+  closeExport(): void {
+    if (this.exporter.status() !== 'idle') return; // cancel first
+    this.exportOpen.set(false);
+  }
+
+  onExportFormat(ev: Event): void { this.exportFormatId.set((ev.target as HTMLSelectElement).value as ExportFormat['id']); }
+  onExportFps(ev: Event): void { this.exportFps.set(+(ev.target as HTMLSelectElement).value); }
+
+  startExport(): void {
+    const format = this.exporter.formats.find(f => f.id === this.exportFormatId()) ?? this.exporter.formats[0];
+    if (!format) return;
+    void this.exporter.start(format, this.exportFps(), this.project.name());
+  }
+
+  exportSeconds(): string { return (this.playback.duration() / 1000).toFixed(1); }
+  exportPercent(): number { return Math.round(this.exporter.progress() * 100); }
+
   async openProject(p: ProjectSummary): Promise<void> {
     if (this.project.dirty() && !confirm('You have unsaved changes. Open another project anyway?')) return;
     try {
@@ -135,6 +161,8 @@ export class ToolbarComponent implements OnInit, OnDestroy {
       this.save();
     } else if (e.key === 'Escape' && this.dialogOpen()) {
       this.closeDialog();
+    } else if (e.key === 'Escape' && this.exportOpen()) {
+      this.closeExport();
     }
   }
 

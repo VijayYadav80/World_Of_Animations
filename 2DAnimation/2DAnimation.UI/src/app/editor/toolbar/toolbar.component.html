@@ -52,7 +52,7 @@
   <button type="button" (click)="preview()" title="Play the scene from the start">
     <svg viewBox="0 0 24 24" class="i fill sm"><path d="M7 4v16l13-8z"/></svg> Preview
   </button>
-  <button type="button" disabled title="Phase 6: WebM export">
+  <button type="button" (click)="openExport()" title="Save the animation as a video file">
     <svg viewBox="0 0 24 24" class="i"><path d="M12 3v12m0 0-4-4m4 4 4-4"/><path d="M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2"/></svg>
     Export
   </button>
@@ -110,6 +110,54 @@
             </li>
           }
         </ul>
+      }
+    </div>
+  </div>
+}
+
+@if (exportOpen()) {
+  <div class="backdrop" (click)="closeExport()">
+    <div class="dialog export" role="dialog" aria-modal="true" aria-label="Export video" (click)="$event.stopPropagation()">
+      <div class="dialog-head">
+        <h2>Export video</h2>
+        <button type="button" class="ghost icon" (click)="closeExport()" [disabled]="exporter.status() !== 'idle'" aria-label="Close">
+          <svg viewBox="0 0 24 24" class="i"><path d="M6 6l12 12M18 6 6 18"/></svg>
+        </button>
+      </div>
+
+      @if (exporter.formats.length === 0) {
+        <p class="note error">This browser cannot record video. Please use a recent Chrome or Edge.</p>
+      } @else if (exporter.status() === 'idle') {
+        <div class="export-fields">
+          <label>Format
+            <select (change)="onExportFormat($event)">
+              @for (f of exporter.formats; track f.id) {
+                <option [value]="f.id" [selected]="f.id === exportFormatId()">{{ f.label }}</option>
+              }
+            </select>
+          </label>
+          <label>Frames per second
+            <select (change)="onExportFps($event)">
+              <option value="24" [selected]="exportFps() === 24">24</option>
+              <option value="30" [selected]="exportFps() === 30">30</option>
+              <option value="60" [selected]="exportFps() === 60">60</option>
+            </select>
+          </label>
+        </div>
+        <p class="note">The animation plays once from the start ({{ exportSeconds() }} s) and is recorded with its sound. Keep this tab open and visible until it is done.</p>
+        @if (exporter.message(); as m) { <p class="note" [class.error]="m.kind === 'err'">{{ m.text }}</p> }
+        <div class="export-actions">
+          <button type="button" (click)="closeExport()">Close</button>
+          <button type="button" class="primary" (click)="startExport()">Start export</button>
+        </div>
+      } @else {
+        <p class="note">{{ exporter.status() === 'recording' ? 'Recording… ' + exportPercent() + '%' : 'Finishing the file…' }}</p>
+        <div class="bar-track" role="progressbar" [attr.aria-valuenow]="exportPercent()" aria-valuemin="0" aria-valuemax="100">
+          <div class="bar-fill" [style.width.%]="exportPercent()"></div>
+        </div>
+        <div class="export-actions">
+          <button type="button" class="danger" (click)="exporter.cancel()" [disabled]="exporter.status() !== 'recording'">Cancel</button>
+        </div>
       }
     </div>
   </div>
