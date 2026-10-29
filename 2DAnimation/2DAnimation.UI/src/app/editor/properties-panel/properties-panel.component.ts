@@ -15,53 +15,82 @@ const DEFAULT_SCALE = 0.8;
   template: `
     @if (scene.selected(); as sel) {
       <form [formGroup]="form" class="props">
-        <h3>{{ sel.characterId }}</h3>
+        <header class="who">
+          <span class="avatar">{{ sel.characterId.charAt(0).toUpperCase() }}</span>
+          <div>
+            <h3>{{ sel.characterId }}</h3>
+            <small>{{ sel.timeline.clips.length }} actions on the timeline</small>
+          </div>
+        </header>
 
-        <div class="size">
-          <div class="size-head">
+        <section class="group size">
+          <div class="group-head">
             <span>Size</span>
             <strong>{{ percent(sel.scale) }}%</strong>
           </div>
           <div class="size-row">
-            <button type="button" (click)="nudge(-0.1)" title="Smaller" aria-label="Make smaller">−</button>
+            <button type="button" class="icon" (click)="nudge(-0.1)" title="Smaller" aria-label="Make smaller">−</button>
             <input type="range" formControlName="scale" [min]="min" [max]="3" step="0.05" aria-label="Character size" />
-            <button type="button" (click)="nudge(0.1)" title="Bigger" aria-label="Make bigger">+</button>
+            <button type="button" class="icon" (click)="nudge(0.1)" title="Bigger" aria-label="Make bigger">+</button>
           </div>
-          <div class="size-presets">
-            <button type="button" (click)="setScale(0.5)">Small</button>
-            <button type="button" (click)="setScale(0.8)">Medium</button>
-            <button type="button" (click)="setScale(1.2)">Large</button>
-            <button type="button" (click)="setScale(defaultScale)" title="Back to the default size">Reset</button>
+          <div class="seg presets">
+            <button type="button" [class.on]="isPreset(sel.scale, 0.5)" (click)="setScale(0.5)">Small</button>
+            <button type="button" [class.on]="isPreset(sel.scale, 0.8)" (click)="setScale(0.8)">Medium</button>
+            <button type="button" [class.on]="isPreset(sel.scale, 1.2)" (click)="setScale(1.2)">Large</button>
           </div>
-          <small>Tip: drag the white dot on the selected character to resize on the stage.</small>
-        </div>
+          <div class="size-foot">
+            <small>Tip: drag the white dot on the character.</small>
+            <button type="button" class="ghost" (click)="setScale(defaultScale)" title="Back to the default size">Reset</button>
+          </div>
+        </section>
 
-        <label>Position X <input type="number" formControlName="x" step="1" /></label>
-        <label>Position Y <input type="number" formControlName="y" step="1" /></label>
-        <label>Scale <input type="number" formControlName="scale" step="0.05" [min]="min" [max]="max" /></label>
-        <label>Rotation (°) <input type="number" formControlName="rotation" step="1" /></label>
-        <label class="check"><input type="checkbox" formControlName="flipX" /> Flip horizontally</label>
+        <section class="group">
+          <div class="group-head"><span>Transform</span></div>
+          <div class="fields">
+            <label>X <input type="number" formControlName="x" step="1" /></label>
+            <label>Y <input type="number" formControlName="y" step="1" /></label>
+            <label>Scale <input type="number" formControlName="scale" step="0.05" [min]="min" [max]="max" /></label>
+            <label>Rotation ° <input type="number" formControlName="rotation" step="1" /></label>
+          </div>
+          <label class="flip">
+            <span>Flip horizontally</span>
+            <input type="checkbox" formControlName="flipX" />
+          </label>
+        </section>
       </form>
     } @else {
-      <p class="empty">Select a character on the stage to edit it.</p>
+      <div class="empty-state">
+        <span class="badge">
+          <svg viewBox="0 0 24 24" class="i"><path d="m4 4 7 16 2.5-6.5L20 11z"/></svg>
+        </span>
+        <strong>Nothing selected</strong>
+        <span>Click a character on the stage to edit its size and position.</span>
+      </div>
     }
   `,
   styles: [`
-    .props { display: grid; gap: 10px; font: 13px system-ui, sans-serif; color: #d6d9df; }
-    h3 { margin: 0 0 4px; font-size: 14px; font-weight: 600; }
-    label { display: grid; gap: 4px; }
-    label.check { display: flex; align-items: center; gap: 8px; }
-    input[type=number] { background: #14161a; color: #eef0f4; border: 1px solid #343842; border-radius: 4px; padding: 6px 8px; }
-    input:focus-visible { outline: 2px solid #4da3ff; outline-offset: 1px; }
-    .empty { color: #8b909b; font: 13px system-ui, sans-serif; }
-    .size { display: grid; gap: 6px; padding: 8px; border: 1px solid #30343d; border-radius: 8px; background: #161a21; }
-    .size-head { display: flex; justify-content: space-between; align-items: center; }
+    .props { display: grid; gap: 12px; }
+    .who { display: flex; align-items: center; gap: 11px; }
+    .who h3 { margin: 0; font-size: 15px; font-weight: 650; text-transform: capitalize; }
+    .who small { color: var(--text-dim); }
+    .avatar { width: 40px; height: 40px; border-radius: 12px; display: grid; place-items: center; font-weight: 700; font-size: 17px; color: #fff; background: var(--accent-grad); }
+
+    .group { display: grid; gap: 10px; padding: 12px; border: 1px solid var(--border); border-radius: 12px; background: var(--bg-2); }
+    .group-head { display: flex; justify-content: space-between; align-items: center; font-size: 11px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; color: var(--text-dim); }
+    .group-head strong { color: var(--text); font-size: 15px; letter-spacing: 0; text-transform: none; font-variant-numeric: tabular-nums; }
+
     .size-row { display: grid; grid-template-columns: 30px minmax(0, 1fr) 30px; gap: 8px; align-items: center; }
-    .size-row button { padding: 2px 0; font-size: 16px; line-height: 1.2; }
-    .size-row input[type=range] { width: 100%; accent-color: #4da3ff; padding: 0; }
-    .size-presets { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; }
-    .size-presets button { padding: 4px 0; font-size: 12px; }
-    small { color: #8b909b; }
+    .size-row button { width: 30px; height: 30px; font-size: 17px; line-height: 1; }
+    .size-row input[type=range] { width: 100%; }
+    .presets button { padding: 5px 0; font-size: 12px; }
+    .size-foot { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+    .size-foot small { color: var(--text-faint); font-size: 11.5px; }
+    .size-foot button { padding: 3px 9px; font-size: 12px; }
+
+    .fields { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+    label { display: grid; gap: 4px; font-size: 12px; color: var(--text-dim); font-weight: 500; }
+    label input[type=number] { width: 100%; color: var(--text); font-variant-numeric: tabular-nums; }
+    label.flip { display: flex; align-items: center; justify-content: space-between; padding-top: 4px; font-size: 13px; color: var(--text); }
   `],
 })
 export class PropertiesPanelComponent {
@@ -96,6 +125,8 @@ export class PropertiesPanelComponent {
   }
 
   protected percent(scale: number): number { return Math.round(scale * 100); }
+
+  protected isPreset(scale: number, preset: number): boolean { return Math.abs(scale - preset) < 0.025; }
 
   protected nudge(delta: number): void {
     const sel = this.scene.selected();

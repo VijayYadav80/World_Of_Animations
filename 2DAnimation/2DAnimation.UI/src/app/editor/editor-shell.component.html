@@ -3,14 +3,18 @@
   <app-left-sidebar class="area-left" />
   <app-stage class="area-stage" />
 
-  <aside class="area-right right-stack" aria-label="Character properties and actions">
-    <section class="right-section properties-section">
-      <app-properties-panel />
-    </section>
-    <section class="right-section actions-section">
-      <h3 class="section-heading">Character Actions</h3>
-      <app-action-panel />
-    </section>
+  <aside class="area-right" aria-label="Character properties and actions">
+    <div class="seg">
+      <button type="button" [class.on]="rightTab() === 'props'" (click)="rightTab.set('props')">Properties</button>
+      <button type="button" [class.on]="rightTab() === 'actions'" (click)="rightTab.set('actions')">Actions</button>
+    </div>
+    <div class="right-body">
+      @if (rightTab() === 'props') {
+        <app-properties-panel />
+      } @else {
+        <app-action-panel />
+      }
+    </div>
   </aside>
 
   <app-timeline-panel class="area-timeline" />

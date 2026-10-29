@@ -49,8 +49,10 @@ const HANDLE_RADIUS = 11;
   `,
   styles: [`
     /* Fills the centre panel without influencing its size; the 16:9 box inside is sized in JS (letterbox fit). */
-    :host { position: absolute; inset: 0; display: block; overflow: hidden; background: #0b0c0f; }
-    .stage-wrap { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); background: #0e0f12; }
+    :host { position: absolute; inset: 0; display: block; overflow: hidden; background: var(--stage-backdrop, #0b0c0f); border-radius: inherit; }
+    /* faint dotted grid behind the stage, like a design canvas */
+    :host::before { content: ""; position: absolute; inset: 0; background-image: radial-gradient(color-mix(in srgb, var(--text) 9%, transparent) 1px, transparent 1px); background-size: 22px 22px; pointer-events: none; }
+    .stage-wrap { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); background: #0e0f12; border-radius: 12px; overflow: hidden; box-shadow: 0 0 0 1px rgba(255, 255, 255, .08), 0 24px 60px rgba(0, 0, 0, .5); }
     .stage-host { position: absolute; inset: 0; }
     .stage-msg { position: absolute; inset: 0; display: grid; place-items: center; color: #c9ccd3; font: 14px system-ui, sans-serif; text-align: center; padding: 16px; }
     .stage-error { color: #ff9b8f; }

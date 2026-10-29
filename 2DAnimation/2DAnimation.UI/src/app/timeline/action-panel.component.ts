@@ -14,68 +14,86 @@ import { SceneStateService } from '../core/services/scene-state.service';
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <section class="ap">
-      <div class="transport">
-        <button type="button" (click)="playback.restart()" aria-label="Go to start">⏮</button>
-        <button type="button" (click)="playback.toggle()" [attr.aria-label]="playback.playing() ? 'Pause' : 'Play'">{{ playback.playing() ? '⏸' : '▶' }}</button>
-        <span class="time">{{ fmt(playback.time()) }} / {{ fmt(playback.duration()) }}</span>
-      </div>
-      <input class="seek" type="range" min="0" [max]="playback.duration()" step="10"
-             [value]="playback.time()" (input)="playback.seek(+$any($event.target).value)" aria-label="Playhead" />
-
       @if (rig(); as r) {
-        <h4>Actions for {{ r.displayName }}</h4>
-        <label class="dur">Duration for looping actions (s)
-          <input type="number" [formControl]="loopSeconds" min="0.5" step="0.5" />
-        </label>
-        <div class="actions">
-          @for (a of r.animations; track a.id) {
-            <button type="button" [disabled]="!availability()[a.id]?.ok" [attr.title]="availability()[a.id]?.reason ?? a.note ?? ''" (click)="add(r, a.id)">
-              {{ a.displayName }}@if (a.status !== 'complete') { <small> (incomplete)</small> }
-            </button>
-          }
-        </div>
-        <div class="row-actions">
-          <button type="button" (click)="demo(r)">Demo: Walk → Idle → Sit → Talk → Get Up → Walk</button>
-          <button type="button" (click)="clear()">Clear sequence</button>
-        </div>
-        @if (message(); as m) { <p class="msg" role="status">{{ m }}</p> }
+        <header class="who">
+          <span class="avatar">{{ r.displayName.charAt(0).toUpperCase() }}</span>
+          <div>
+            <h3>{{ r.displayName }}</h3>
+            <small>Tap an action to add it to the timeline</small>
+          </div>
+        </header>
 
-        <h4>Sequence</h4>
-        @if (sequence().length === 0) { <p class="empty">No actions yet. Raju idles. Add an action above.</p> }
-        <ol class="seq">
-          @for (c of sequence(); track c.id) {
-            <li>
-              <span>{{ name(r, c.clipId) }}</span>
-              <small>{{ fmt(c.start) }} – {{ fmt(c.start + c.duration) }}</small>
-              <button type="button" (click)="remove(c.id)" aria-label="Remove action">✕</button>
-            </li>
-          }
-        </ol>
+        <div class="card-box">
+          <div class="box-head"><span>Add action</span>
+            <label class="dur" title="Length used for looping actions such as Walk and Talk">
+              Loop
+              <input type="number" [formControl]="loopSeconds" min="0.5" step="0.5" /> s
+            </label>
+          </div>
+          <div class="actions">
+            @for (a of r.animations; track a.id) {
+              <button type="button" [disabled]="!availability()[a.id].ok" [attr.title]="availability()[a.id].reason ?? a.note ?? ''" (click)="add(r, a.id)">
+                {{ a.displayName }}@if (a.status !== 'complete') { <small>·wip</small> }
+              </button>
+            }
+          </div>
+          @if (message(); as m) { <p class="msg" role="status">{{ m }}</p> }
+        </div>
+
+        <div class="row-actions">
+          <button type="button" class="primary" (click)="demo(r)">▶ Play demo sequence</button>
+          <button type="button" class="danger" (click)="clear()" [disabled]="sequence().length === 0">Clear</button>
+        </div>
+
+        <div class="card-box">
+          <div class="box-head"><span>Sequence</span><span class="count">{{ sequence().length }}</span></div>
+          @if (sequence().length === 0) { <p class="empty">No actions yet — {{ r.displayName }} just idles.</p> }
+          <ol class="seq">
+            @for (c of sequence(); track c.id; let i = $index) {
+              <li>
+                <span class="no">{{ i + 1 }}</span>
+                <span class="nm">{{ name(r, c.clipId) }}</span>
+                <small>{{ fmt(c.start) }} – {{ fmt(c.start + c.duration) }}</small>
+                <button type="button" class="ghost icon danger" (click)="remove(c.id)" aria-label="Remove action">✕</button>
+              </li>
+            }
+          </ol>
+        </div>
       } @else {
-        <p class="empty">Select a character to add actions.</p>
+        <div class="empty-state">
+          <span class="badge"><svg viewBox="0 0 24 24" class="i"><path d="M13 2 4 14h7l-1 8 9-12h-7z"/></svg></span>
+          <strong>No character selected</strong>
+          <span>Select a character to add actions like walk, sit and wave.</span>
+        </div>
       }
     </section>
   `,
   styles: [`
-    .ap { display: grid; gap: 8px; font: 13px system-ui, sans-serif; color: #d6d9df; }
-    h4 { margin: 8px 0 0; font-size: 13px; font-weight: 600; }
-    button { background: #23262d; color: #eef0f4; border: 1px solid #3a3f4a; border-radius: 4px; padding: 5px 9px; cursor: pointer; }
-    button:hover:not(:disabled) { background: #2d313a; }
-    button:disabled { opacity: .4; cursor: not-allowed; }
-    button:focus-visible, input:focus-visible { outline: 2px solid #4da3ff; outline-offset: 1px; }
-    .transport { display: flex; align-items: center; gap: 6px; }
-    .time { margin-left: auto; font-variant-numeric: tabular-nums; }
-    .seek { width: 100%; }
-    .dur { display: grid; gap: 4px; }
-    .dur input { background: #14161a; color: #eef0f4; border: 1px solid #343842; border-radius: 4px; padding: 5px 8px; }
-    .actions { display: flex; flex-wrap: wrap; gap: 6px; }
-    .row-actions { display: grid; gap: 6px; }
-    .seq { margin: 0; padding: 0; list-style: none; display: grid; gap: 4px; }
-    .seq li { display: flex; align-items: center; gap: 8px; background: #1a1d23; border-radius: 4px; padding: 4px 8px; }
-    .seq li small { color: #8b909b; margin-left: auto; font-variant-numeric: tabular-nums; }
-    .seq li button { padding: 1px 6px; }
-    .empty, .msg { color: #8b909b; margin: 0; }
-    .msg { color: #ffb36b; }
+    .ap { display: grid; gap: 12px; }
+    .who { display: flex; align-items: center; gap: 11px; }
+    .who h3 { margin: 0; font-size: 15px; font-weight: 650; }
+    .who small { color: var(--text-dim); }
+    .avatar { width: 40px; height: 40px; border-radius: 12px; display: grid; place-items: center; font-weight: 700; font-size: 17px; color: #fff; background: var(--accent-grad); }
+
+    .card-box { display: grid; gap: 10px; padding: 12px; border: 1px solid var(--border); border-radius: 12px; background: var(--bg-2); }
+    .box-head { display: flex; align-items: center; justify-content: space-between; font-size: 11px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; color: var(--text-dim); }
+    .count { background: var(--bg-3); border-radius: 99px; padding: 0 8px; letter-spacing: 0; }
+    .dur { display: inline-flex; align-items: center; gap: 5px; text-transform: none; letter-spacing: 0; font-weight: 500; }
+    .dur input { width: 54px; padding: 3px 6px; }
+
+    .actions { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
+    .actions button { padding: 8px 4px; font-size: 12.5px; }
+    .actions button small { color: var(--warn); }
+    .row-actions { display: grid; grid-template-columns: 1fr auto; gap: 8px; }
+
+    .seq { margin: 0; padding: 0; list-style: none; display: grid; gap: 5px; }
+    .seq li { display: flex; align-items: center; gap: 9px; background: var(--bg-1); border: 1px solid var(--border); border-radius: 10px; padding: 5px 6px 5px 8px; }
+    .seq .no { width: 20px; height: 20px; border-radius: 6px; display: grid; place-items: center; font-size: 11px; font-weight: 700; background: var(--accent-soft); color: var(--accent); }
+    .seq .nm { font-weight: 600; }
+    .seq li small { color: var(--text-dim); margin-left: auto; font-variant-numeric: tabular-nums; }
+    .seq li button { width: 24px; height: 24px; font-size: 11px; }
+    .empty { color: var(--text-dim); margin: 0; }
+    .msg { color: var(--warn); margin: 0; font-size: 12px; }
   `],
 })
 export class ActionPanelComponent {

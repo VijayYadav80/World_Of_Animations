@@ -1,4 +1,4 @@
-import { Component } from '@angular/core';
+import { Component, signal } from '@angular/core';
 import { StageComponent } from '../canvas/stage.component';
 import { ActionPanelComponent } from '../timeline/action-panel.component';
 import { LeftSidebarComponent } from './left-sidebar/left-sidebar.component';
@@ -19,4 +19,7 @@ import { ToolbarComponent } from './toolbar/toolbar.component';
   templateUrl: './editor-shell.component.html',
   styleUrl: './editor-shell.component.css'
 })
-export class EditorShellComponent {}
+export class EditorShellComponent {
+  /** Which tab of the right-hand panel is open. */
+  readonly rightTab = signal<'props' | 'actions'>('props');
+}

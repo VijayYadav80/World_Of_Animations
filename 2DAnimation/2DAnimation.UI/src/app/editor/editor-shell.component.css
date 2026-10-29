@@ -1,10 +1,13 @@
-:host { display: block; height: 100vh; }
+:host { display: block; height: 100vh; background: var(--bg-0); }
 
+/* Floating cards on a darker canvas: the gaps are what makes it feel "modern". */
 .editor {
   display: grid;
   height: 100%;
-  grid-template-columns: 260px minmax(0, 1fr) 320px;
-  grid-template-rows: 48px minmax(0, 1fr) 240px;
+  padding: 10px;
+  gap: 10px;
+  grid-template-columns: 290px minmax(0, 1fr) 320px;
+  grid-template-rows: 54px minmax(0, 1fr) 250px;
   grid-template-areas:
     "toolbar  toolbar  toolbar"
     "left     stage    right"
@@ -17,46 +20,31 @@
 .area-right    { grid-area: right; }
 .area-timeline { grid-area: timeline; }
 
-.area-left, .area-stage, .area-timeline {
-  min-height: 0;
-  min-width: 0;
-  overflow: hidden;
+.area-toolbar, .area-left, .area-right, .area-timeline {
+  background: var(--bg-1);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
 }
 
-.right-stack {
-  display: flex;
-  flex-direction: column;
-  gap: 14px;
-  min-height: 0;
-  min-width: 0;
-  overflow: auto;
-  padding: 12px;
-  box-sizing: border-box;
-  background: #1b1e24;
-  border-left: 1px solid #30343d;
-}
+.area-left, .area-stage, .area-timeline { min-height: 0; min-width: 0; overflow: hidden; }
+/* the stage is absolutely positioned inside its grid cell (see StageComponent.setupFit) */
+.area-stage { border-radius: var(--radius); border: 1px solid var(--border); }
 
-.right-section {
-  min-width: 0;
-  padding-bottom: 12px;
-  border-bottom: 1px solid #30343d;
+.area-right {
+  display: flex; flex-direction: column; gap: 10px;
+  min-height: 0; min-width: 0; padding: 10px;
 }
+.right-body { flex: 1; min-height: 0; overflow-y: auto; padding: 2px 4px 4px 2px; }
 
-.actions-section { border-bottom: 0; }
-.section-heading {
-  margin: 0 0 10px;
-  color: #eef0f4;
-  font: 600 13px system-ui, sans-serif;
-}
-
-@media (max-width: 1000px) {
-  .editor { grid-template-columns: 220px minmax(0, 1fr) 290px; }
+@media (max-width: 1100px) {
+  .editor { grid-template-columns: 240px minmax(0, 1fr) 280px; }
 }
 
 @media (max-width: 760px) {
   .editor {
-    grid-template-columns: 190px minmax(0, 1fr);
-    grid-template-rows: 48px minmax(0, 1fr) 240px;
+    grid-template-columns: 210px minmax(0, 1fr);
+    grid-template-rows: 54px minmax(0, 1fr) 250px;
     grid-template-areas:
       "toolbar toolbar"
       "left    stage"

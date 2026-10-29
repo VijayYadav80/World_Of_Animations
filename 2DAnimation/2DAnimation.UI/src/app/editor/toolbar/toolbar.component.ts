@@ -4,6 +4,7 @@ import { ApiHealthService } from '../../core/api/api-health.service';
 import { ProjectSummary } from '../../core/models/project.models';
 import { PlaybackService } from '../../core/services/playback.service';
 import { ProjectService } from '../../core/services/project.service';
+import { ThemeService } from '../../core/services/theme.service';
 
 type LinkState = 'checking' | 'ok' | 'error';
 
@@ -16,6 +17,7 @@ export class ToolbarComponent implements OnInit, OnDestroy {
   private readonly health = inject(ApiHealthService);
   private readonly playback = inject(PlaybackService);
   protected readonly project = inject(ProjectService);
+  protected readonly theme = inject(ThemeService);
   private sub?: Subscription;
 
   readonly apiState = signal<LinkState>('checking');
