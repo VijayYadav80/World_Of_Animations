@@ -1,0 +1,1222 @@
+diff --git a/2DAnimation/2DAnimation.API/Controllers/ProjectsController.cs b/2DAnimation/2DAnimation.API/Controllers/ProjectsController.cs
+index c944bcb..e93c516 100644
+--- a/2DAnimation/2DAnimation.API/Controllers/ProjectsController.cs
++++ b/2DAnimation/2DAnimation.API/Controllers/ProjectsController.cs
+@@ -6,8 +6,10 @@ namespace _2DAnimation.API.Controllers;
+ 
+ [ApiController]
+ [Route("api/[controller]")]
+-public class ProjectsController(IProjectService projects) : ControllerBase
++public class ProjectsController(IProjectService projects, IProjectFileStore files) : ControllerBase
+ {
++    private const long MaxAudioBytes = 100L * 1024 * 1024;
++
+     [HttpGet]
+     public async Task<ActionResult<IReadOnlyList<ProjectSummaryDto>>> List(CancellationToken ct)
+         => Ok(await projects.ListAsync(ct));
+@@ -17,6 +19,51 @@ public class ProjectsController(IProjectService projects) : ControllerBase
+         [FromBody] CreateProjectRequest request, CancellationToken ct)
+     {
+         var created = await projects.CreateAsync(request, ct);
+-        return CreatedAtAction(nameof(List), new { id = created.Id }, created);
++        return CreatedAtAction(nameof(Get), new { id = created.Id }, created);
++    }
++
++    [HttpGet("{id:guid}")]
++    public async Task<ActionResult<ProjectDetailDto>> Get(Guid id, CancellationToken ct)
++    {
++        var project = await projects.GetAsync(id, ct);
++        return project is null ? NotFound() : Ok(project);
++    }
++
++    [HttpPut("{id:guid}")]
++    public async Task<ActionResult<ProjectSummaryDto>> Save(
++        Guid id, [FromBody] SaveProjectRequest request, CancellationToken ct)
++    {
++        try
++        {
++            var saved = await projects.SaveAsync(id, request, ct);
++            return saved is null ? NotFound() : Ok(saved);
++        }
++        catch (System.Text.Json.JsonException)
++        {
++            return BadRequest(new ProblemDetails { Title = "SceneJson is not valid JSON." });
++        }
++    }
++
++    [HttpDelete("{id:guid}")]
++    public async Task<IActionResult> Delete(Guid id, CancellationToken ct)
++        => await projects.DeleteAsync(id, ct) ? NoContent() : NotFound();
++
++    /// <summary>Stores one imported audio file (raw bytes in the request body).</summary>
++    [HttpPut("{id:guid}/audio/{assetId}")]
++    [RequestSizeLimit(MaxAudioBytes)]
++    public async Task<IActionResult> UploadAudio(Guid id, string assetId, CancellationToken ct)
++    {
++        if (!files.IsValidAssetId(assetId)) return BadRequest(new ProblemDetails { Title = "Invalid audio id." });
++        if (!await projects.ExistsAsync(id, ct)) return NotFound();
++
++        await files.SaveAudioAsync(id, assetId, Request.Body, ct);
++        return NoContent();
++    }
++
++    [HttpGet("{id:guid}/audio/{assetId}")]
++    public IActionResult DownloadAudio(Guid id, string assetId)
++    {
++        var stream = files.OpenAudio(id, assetId);
++        return stream is null ? NotFound() : File(stream, "application/octet-stream");
+     }
+ }
+diff --git a/2DAnimation/2DAnimation.API/DTOs/ProjectDtos.cs b/2DAnimation/2DAnimation.API/DTOs/ProjectDtos.cs
+index 7567b48..0544cff 100644
+--- a/2DAnimation/2DAnimation.API/DTOs/ProjectDtos.cs
++++ b/2DAnimation/2DAnimation.API/DTOs/ProjectDtos.cs
+@@ -8,6 +8,18 @@ public class CreateProjectRequest
+     public string Name { get; set; } = string.Empty;
+ }
+ 
++/// <summary>Phase 5: saves the project name and the whole scene (a JSON document written by the UI).</summary>
++public class SaveProjectRequest
++{
++    [Required, StringLength(200, MinimumLength = 1)]
++    public string Name { get; set; } = string.Empty;
++
++    [Required, StringLength(20_000_000, MinimumLength = 2)]
++    public string SceneJson { get; set; } = "{}";
++}
++
+ public record ProjectSummaryDto(Guid Id, string Name, DateTime CreatedUtc, DateTime UpdatedUtc);
+ 
++public record ProjectDetailDto(Guid Id, string Name, string SceneJson, DateTime CreatedUtc, DateTime UpdatedUtc);
++
+ public record HealthDto(string Api, string Database, DateTime TimeUtc);
+diff --git a/2DAnimation/2DAnimation.API/Program.cs b/2DAnimation/2DAnimation.API/Program.cs
+index 210d2dc..88a7af2 100644
+--- a/2DAnimation/2DAnimation.API/Program.cs
++++ b/2DAnimation/2DAnimation.API/Program.cs
+@@ -14,6 +14,7 @@ var connectionString = builder.Configuration.GetConnectionString("StudioDb")
+ 
+ builder.Services.AddDbContext<AppDbContext>(options => options.UseSqlServer(connectionString));
+ builder.Services.AddScoped<IProjectService, ProjectService>();
++builder.Services.AddSingleton<IProjectFileStore, ProjectFileStore>();
+ 
+ var app = builder.Build();
+ 
+diff --git a/2DAnimation/2DAnimation.API/Services/IProjectService.cs b/2DAnimation/2DAnimation.API/Services/IProjectService.cs
+index 049525d..1c1dd5a 100644
+--- a/2DAnimation/2DAnimation.API/Services/IProjectService.cs
++++ b/2DAnimation/2DAnimation.API/Services/IProjectService.cs
+@@ -6,4 +6,10 @@ public interface IProjectService
+ {
+     Task<IReadOnlyList<ProjectSummaryDto>> ListAsync(CancellationToken ct);
+     Task<ProjectSummaryDto> CreateAsync(CreateProjectRequest request, CancellationToken ct);
++
++    // Phase 5
++    Task<ProjectDetailDto?> GetAsync(Guid id, CancellationToken ct);
++    Task<ProjectSummaryDto?> SaveAsync(Guid id, SaveProjectRequest request, CancellationToken ct);
++    Task<bool> DeleteAsync(Guid id, CancellationToken ct);
++    Task<bool> ExistsAsync(Guid id, CancellationToken ct);
+ }
+diff --git a/2DAnimation/2DAnimation.API/Services/ProjectFileStore.cs b/2DAnimation/2DAnimation.API/Services/ProjectFileStore.cs
+new file mode 100644
+index 0000000..47f553e
+--- /dev/null
++++ b/2DAnimation/2DAnimation.API/Services/ProjectFileStore.cs
+@@ -0,0 +1,60 @@
++using System.Text.RegularExpressions;
++
++namespace _2DAnimation.API.Services;
++
++/// <summary>
++/// Large binary files of a project (imported voice audio) live on the filesystem, not in the database.
++/// Layout: {Storage:Root}/projects/{projectId}/audio/{assetId}
++/// </summary>
++public interface IProjectFileStore
++{
++    bool IsValidAssetId(string assetId);
++    Task SaveAudioAsync(Guid projectId, string assetId, Stream data, CancellationToken ct);
++    Stream? OpenAudio(Guid projectId, string assetId);
++    void DeleteProject(Guid projectId);
++}
++
++public partial class ProjectFileStore(IConfiguration config, IWebHostEnvironment env) : IProjectFileStore
++{
++    // Asset ids come from the browser: only a safe, short charset is accepted (blocks "../" tricks).
++    [GeneratedRegex("^[A-Za-z0-9_-]{1,64}$")]
++    private static partial Regex AssetIdPattern();
++
++    private string Root => Path.GetFullPath(config["Storage:Root"] ?? Path.Combine(env.ContentRootPath, "storage"));
++
++    private string ProjectDir(Guid projectId) => Path.Combine(Root, "projects", projectId.ToString("N"));
++
++    private string AudioDir(Guid projectId) => Path.Combine(ProjectDir(projectId), "audio");
++
++    public bool IsValidAssetId(string assetId) => AssetIdPattern().IsMatch(assetId);
++
++    public async Task SaveAudioAsync(Guid projectId, string assetId, Stream data, CancellationToken ct)
++    {
++        if (!IsValidAssetId(assetId)) throw new ArgumentException("Invalid audio id.", nameof(assetId));
++
++        var dir = AudioDir(projectId);
++        Directory.CreateDirectory(dir);
++        var target = Path.Combine(dir, assetId);
++        var temp = target + ".tmp";
++
++        // Write to a temp file first so a failed upload never leaves a half-written audio file behind.
++        await using (var output = new FileStream(temp, FileMode.Create, FileAccess.Write, FileShare.None))
++        {
++            await data.CopyToAsync(output, ct);
++        }
++        File.Move(temp, target, overwrite: true);
++    }
++
++    public Stream? OpenAudio(Guid projectId, string assetId)
++    {
++        if (!IsValidAssetId(assetId)) return null;
++        var path = Path.Combine(AudioDir(projectId), assetId);
++        return File.Exists(path) ? new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read) : null;
++    }
++
++    public void DeleteProject(Guid projectId)
++    {
++        var dir = ProjectDir(projectId);
++        if (Directory.Exists(dir)) Directory.Delete(dir, recursive: true);
++    }
++}
+diff --git a/2DAnimation/2DAnimation.API/Services/ProjectService.cs b/2DAnimation/2DAnimation.API/Services/ProjectService.cs
+index 57a87c7..c3d3d22 100644
+--- a/2DAnimation/2DAnimation.API/Services/ProjectService.cs
++++ b/2DAnimation/2DAnimation.API/Services/ProjectService.cs
+@@ -1,3 +1,4 @@
++using System.Text.Json;
+ using _2DAnimation.API.Data;
+ using _2DAnimation.API.DTOs;
+ using _2DAnimation.API.Entities;
+@@ -5,7 +6,7 @@ using Microsoft.EntityFrameworkCore;
+ 
+ namespace _2DAnimation.API.Services;
+ 
+-public class ProjectService(AppDbContext db) : IProjectService
++public class ProjectService(AppDbContext db, IProjectFileStore files) : IProjectService
+ {
+     public async Task<IReadOnlyList<ProjectSummaryDto>> ListAsync(CancellationToken ct)
+     {
+@@ -32,4 +33,43 @@ public class ProjectService(AppDbContext db) : IProjectService
+ 
+         return new ProjectSummaryDto(project.Id, project.Name, project.CreatedUtc, project.UpdatedUtc);
+     }
++
++    public async Task<ProjectDetailDto?> GetAsync(Guid id, CancellationToken ct)
++    {
++        return await db.Projects
++            .AsNoTracking()
++            .Where(p => p.Id == id)
++            .Select(p => new ProjectDetailDto(p.Id, p.Name, p.SceneJson, p.CreatedUtc, p.UpdatedUtc))
++            .FirstOrDefaultAsync(ct);
++    }
++
++    public async Task<ProjectSummaryDto?> SaveAsync(Guid id, SaveProjectRequest request, CancellationToken ct)
++    {
++        var project = await db.Projects.FirstOrDefaultAsync(p => p.Id == id, ct);
++        if (project is null) return null;
++
++        // Never store something that is not valid JSON: it would make the project impossible to open later.
++        using (JsonDocument.Parse(request.SceneJson)) { }
++
++        project.Name = request.Name.Trim();
++        project.SceneJson = request.SceneJson;
++        project.UpdatedUtc = DateTime.UtcNow;
++        await db.SaveChangesAsync(ct);
++
++        return new ProjectSummaryDto(project.Id, project.Name, project.CreatedUtc, project.UpdatedUtc);
++    }
++
++    public async Task<bool> DeleteAsync(Guid id, CancellationToken ct)
++    {
++        var project = await db.Projects.FirstOrDefaultAsync(p => p.Id == id, ct);
++        if (project is null) return false;
++
++        db.Projects.Remove(project);
++        await db.SaveChangesAsync(ct);
++        files.DeleteProject(id); // the audio files go with the project
++        return true;
++    }
++
++    public Task<bool> ExistsAsync(Guid id, CancellationToken ct)
++        => db.Projects.AsNoTracking().AnyAsync(p => p.Id == id, ct);
+ }
+diff --git a/2DAnimation/2DAnimation.UI/src/app/canvas/stage.component.ts b/2DAnimation/2DAnimation.UI/src/app/canvas/stage.component.ts
+index c8d98bb..c245b56 100644
+--- a/2DAnimation/2DAnimation.UI/src/app/canvas/stage.component.ts
++++ b/2DAnimation/2DAnimation.UI/src/app/canvas/stage.component.ts
+@@ -1,7 +1,7 @@
+ import {
+   AfterViewInit, ChangeDetectionStrategy, Component, ElementRef, NgZone, OnDestroy, ViewChild, effect, inject, signal,
+ } from '@angular/core';
+-import { Application, Assets, Container, FederatedPointerEvent, Graphics, Rectangle, Sprite, Text, Texture } from 'pixi.js';
++import { Application, Assets, Circle, Container, FederatedPointerEvent, Graphics, Rectangle, Sprite, Text, Texture } from 'pixi.js';
+ import { evaluatePose, evaluatePosition } from '../core/animation/animation-engine';
+ import { activeDialogue, mouthState } from '../core/dialogue/lipsync';
+ import { DialogueClip } from '../core/models/dialogue.models';
+@@ -15,6 +15,8 @@ interface CharacterView {
+   holder: Container;      // positioned/scaled/rotated/flipped by scene state
+   rig: RigCharacter;
+   selection: Graphics;
++  /** Round grip at the corner of the selection box: drag it to make the character bigger or smaller. */
++  handle: Graphics;
+   /** Speech bubble (lives in bubbleLayer so it is never flipped or scaled with the character). */
+   bubble: Container;
+   bubbleBg: Graphics;
+@@ -29,6 +31,9 @@ const BUBBLE_PAD = 18;
+ const BUBBLE_TAIL = 16;
+ const BUBBLE_FONT = "'Noto Sans Devanagari', 'Nirmala UI', 'Mangal', 'Segoe UI', system-ui, sans-serif";
+ const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v));
++export const MIN_CHARACTER_SCALE = 0.1;
++export const MAX_CHARACTER_SCALE = 4;
++const HANDLE_RADIUS = 11;
+ 
+ /** 16:9 PixiJS stage. Renders the scene state; user drags write back into the scene state. */
+ @Component({
+@@ -75,6 +80,8 @@ export class StageComponent implements AfterViewInit, OnDestroy {
+   private readonly creating = new Set<string>();
+   private currentBackgroundId: string | null = null;
+   private dragging?: { id: string; dx: number; dy: number };
++  /** Active drag of the size handle: scale = startScale * (pointer distance from the feet / startDist). */
++  private resizing?: { id: string; startDist: number; startScale: number };
+   private destroyed = false;
+   private ready = signal(false);
+   private groundY = 640;
+@@ -115,8 +122,8 @@ export class StageComponent implements AfterViewInit, OnDestroy {
+       app.stage.hitArea = new Rectangle(0, 0, STAGE_WIDTH, STAGE_HEIGHT);
+       app.stage.on('pointerdown', (e: FederatedPointerEvent) => { if (e.target === app.stage) this.scene.select(null); });
+       app.stage.on('pointermove', (e: FederatedPointerEvent) => this.onDragMove(e));
+-      app.stage.on('pointerup', () => (this.dragging = undefined));
+-      app.stage.on('pointerupoutside', () => (this.dragging = undefined));
++      app.stage.on('pointerup', () => this.endDrag());
++      app.stage.on('pointerupoutside', () => this.endDrag());
+ 
+       // Every frame: pose + position come from the deterministic engine at the current playhead time.
+       app.ticker.add(() => this.tick());
+@@ -130,10 +137,13 @@ export class StageComponent implements AfterViewInit, OnDestroy {
+         const manifest = await this.assets.getManifest();
+         const bg = manifest.backgrounds[0];
+         const ch = manifest.characters[0];
+-        if (bg) this.scene.setBackground(bg.id);
++        if (bg && !this.scene.state().backgroundId) this.scene.setBackground(bg.id);
+         if (ch && this.scene.state().characters.length === 0) {
+           const { def } = bg ? await this.assets.getBackground(bg.id) : { def: undefined };
+-          this.scene.addCharacter(ch.id, STAGE_WIDTH / 2, def?.groundY ?? this.groundY, def?.defaultCharacterScale ?? 0.8);
++          // A saved project may have been opened while the assets were loading: do not add a second character then.
++          if (this.scene.state().characters.length === 0) {
++            this.scene.addCharacter(ch.id, STAGE_WIDTH / 2, def?.groundY ?? this.groundY, def?.defaultCharacterScale ?? 0.8);
++          }
+         }
+       }
+       this.ready.set(true);
+@@ -152,21 +162,29 @@ export class StageComponent implements AfterViewInit, OnDestroy {
+     this.app = undefined;
+   }
+ 
+-  /** Keeps the 16:9 stage fully visible inside whatever panel it is placed in. */
++  /**
++   * Keeps the 16:9 stage fully visible inside the centre panel.
++   * BUG FIX: this used to measure the *parent* (the whole editor grid), so the stage was sized for the full window
++   * and its edges were cut off by the side panels / timeline. The host element itself is the centre grid cell, so measure that.
++   */
+   private setupFit(): void {
+     const el = this.self.nativeElement as HTMLElement;
+     const parent = el.parentElement;
+     if (!parent) return;
++    // :host is position:absolute; inset:0 -> it needs a positioned parent to be placed inside its grid cell.
+     if (getComputedStyle(parent).position === 'static') parent.style.position = 'relative';
+     const fit = () => {
+-      const w = parent.clientWidth, h = parent.clientHeight;
++      const w = el.clientWidth, h = el.clientHeight;
+       if (!w || !h) return;
+-      const k = Math.min(w / STAGE_WIDTH, h / STAGE_HEIGHT);
++      const pad = 8; // small breathing room around the stage
++      const k = Math.min((w - pad * 2) / STAGE_WIDTH, (h - pad * 2) / STAGE_HEIGHT);
++      if (k <= 0) return;
+       this.wrap.nativeElement.style.width = `${Math.floor(STAGE_WIDTH * k)}px`;
+       this.wrap.nativeElement.style.height = `${Math.floor(STAGE_HEIGHT * k)}px`;
+     };
+     fit();
+     this.resizeObserver = new ResizeObserver(fit);
++    this.resizeObserver.observe(el);
+     this.resizeObserver.observe(parent);
+   }
+ 
+@@ -185,10 +203,16 @@ export class StageComponent implements AfterViewInit, OnDestroy {
+       if (this.destroyed || this.currentBackgroundId !== id) return;
+       this.backgroundLayer.removeChildren().forEach(c => c.destroy());
+       const sprite = new Sprite(tex);
+-      sprite.width = STAGE_WIDTH;     // 16:9 background fills the stage
+-      sprite.height = STAGE_HEIGHT;
++      // "Cover" fit: the image always fills the whole 16:9 stage without stretching (extra edges are cropped, centred).
++      // A 16:9 background (like the village street) fits exactly; photos of other shapes no longer look squashed.
++      const k = Math.max(STAGE_WIDTH / tex.width, STAGE_HEIGHT / tex.height);
++      sprite.scale.set(k);
++      sprite.position.set((STAGE_WIDTH - tex.width * k) / 2, (STAGE_HEIGHT - tex.height * k) / 2);
+       sprite.eventMode = 'none';      // background never reacts to pointer, so it can't be dragged by accident
+-      this.backgroundLayer.addChild(sprite);
++      const mask = new Graphics().rect(0, 0, STAGE_WIDTH, STAGE_HEIGHT).fill(0xffffff);
++      mask.eventMode = 'none';
++      sprite.mask = mask;
++      this.backgroundLayer.addChild(sprite, mask);
+       this.groundY = def.groundY;
+     } catch (e) {
+       this.currentBackgroundId = null;
+@@ -262,7 +286,22 @@ export class StageComponent implements AfterViewInit, OnDestroy {
+         .rect(b.x, b.y, b.width, b.height)
+         .stroke({ width: 2, color: 0x4da3ff, alpha: 0.9 });
+       selection.eventMode = 'none';
+-      holder.addChild(rig.root, selection);
++      const handle = new Graphics()
++        .circle(0, 0, HANDLE_RADIUS).fill(0xffffff).stroke({ width: 3, color: 0x4da3ff });
++      handle.eventMode = 'static';
++      handle.cursor = 'nwse-resize';
++      handle.hitArea = new Circle(0, 0, HANDLE_RADIUS + 8);
++      handle.visible = false;
++      handle.on('pointerdown', (e: FederatedPointerEvent) => {
++        e.stopPropagation();
++        const cur = this.scene.state().characters.find(c => c.instanceId === inst.instanceId);
++        if (!cur) return;
++        const p = e.getLocalPosition(this.world);
++        const at = evaluatePosition(cur.timeline, this.playback.time()) ?? { x: cur.x, y: cur.y };
++        this.scene.select(inst.instanceId);
++        this.resizing = { id: inst.instanceId, startDist: Math.max(20, Math.hypot(p.x - at.x, p.y - at.y)), startScale: cur.scale };
++      });
++      holder.addChild(rig.root, selection, handle);
+       holder.eventMode = 'static';
+       holder.cursor = 'move';
+       holder.hitArea = new Rectangle(b.x, b.y, b.width, b.height);
+@@ -288,7 +327,7 @@ export class StageComponent implements AfterViewInit, OnDestroy {
+       bubble.visible = false;
+       this.bubbleLayer.addChild(bubble);
+ 
+-      const view: CharacterView = { holder, rig, selection, bubble, bubbleBg, bubbleLabel, bubbleText: '', bubbleTail: -1 };
++      const view: CharacterView = { holder, rig, selection, handle, bubble, bubbleBg, bubbleLabel, bubbleText: '', bubbleTail: -1 };
+       this.views.set(inst.instanceId, view);
+       const latest = this.scene.state().characters.find(c => c.instanceId === inst.instanceId) ?? inst;
+       this.applyInstance(view, latest, this.scene.selectedId() === inst.instanceId);
+@@ -307,9 +346,31 @@ export class StageComponent implements AfterViewInit, OnDestroy {
+     h.rotation = ((inst.flipX ? -inst.rotation : inst.rotation) * Math.PI) / 180;
+     h.zIndex = p.y; // lower on screen = in front
+     view.selection.visible = selected;
++    // The handle sits on the top-right corner *as seen on screen* (mirrored when the character is flipped)
++    // and is counter-scaled so it keeps the same size however big or small the character is.
++    const b = view.rig.def.bounds;
++    view.handle.visible = selected;
++    view.handle.position.set(inst.flipX ? b.x : b.x + b.width, b.y);
++    view.handle.scale.set(1 / Math.max(inst.scale, 0.01));
++  }
++
++  private endDrag(): void {
++    this.dragging = undefined;
++    this.resizing = undefined;
+   }
+ 
+   private onDragMove(e: FederatedPointerEvent): void {
++    if (this.resizing) {
++      const r = this.resizing;
++      const cur = this.scene.state().characters.find(c => c.instanceId === r.id);
++      if (!cur) return;
++      const p = e.getLocalPosition(this.world);
++      const at = evaluatePosition(cur.timeline, this.playback.time()) ?? { x: cur.x, y: cur.y };
++      const dist = Math.hypot(p.x - at.x, p.y - at.y);
++      const scale = clamp(r.startScale * (dist / r.startDist), MIN_CHARACTER_SCALE, MAX_CHARACTER_SCALE);
++      this.scene.updateCharacter(r.id, { scale: Math.round(scale * 100) / 100 });
++      return;
++    }
+     if (!this.dragging) return;
+     const p = e.getLocalPosition(this.world);
+     const x = Math.min(STAGE_WIDTH, Math.max(0, p.x + this.dragging.dx));
+diff --git a/2DAnimation/2DAnimation.UI/src/app/core/models/project.models.ts b/2DAnimation/2DAnimation.UI/src/app/core/models/project.models.ts
+new file mode 100644
+index 0000000..09ee990
+--- /dev/null
++++ b/2DAnimation/2DAnimation.UI/src/app/core/models/project.models.ts
+@@ -0,0 +1,35 @@
++import type { AudioClip, DialogueClip } from './dialogue.models';
++import type { CharacterInstance } from '../services/scene-state.service';
++
++/** One row of the "Open project" list (matches the API's ProjectSummaryDto). */
++export interface ProjectSummary {
++  id: string;
++  name: string;
++  createdUtc: string;
++  updatedUtc: string;
++}
++
++/** Full project as returned by GET /api/projects/{id}. `sceneJson` is a JSON string of SceneFileV1. */
++export interface ProjectDetail extends ProjectSummary {
++  sceneJson: string;
++}
++
++export interface SavedAudioAsset {
++  id: string;
++  name: string;
++  /** ms */
++  duration: number;
++}
++
++/** The scene document stored in Projects.SceneJson. Bump schemaVersion when the shape changes. */
++export interface SceneFileV1 {
++  schemaVersion: 1;
++  backgroundId: string | null;
++  characters: CharacterInstance[];
++  dialogues: DialogueClip[];
++  audioClips: AudioClip[];
++  /** Audio files used by audioClips. The bytes live on the server: /api/projects/{id}/audio/{assetId}. */
++  audioAssets: SavedAudioAsset[];
++  /** Length of the timeline in ms. */
++  duration: number;
++}
+diff --git a/2DAnimation/2DAnimation.UI/src/app/core/services/audio.service.ts b/2DAnimation/2DAnimation.UI/src/app/core/services/audio.service.ts
+index d639ebb..702bbe7 100644
+--- a/2DAnimation/2DAnimation.UI/src/app/core/services/audio.service.ts
++++ b/2DAnimation/2DAnimation.UI/src/app/core/services/audio.service.ts
+@@ -10,6 +10,8 @@ export interface AudioAsset {
+   /** ms */
+   duration: number;
+   buffer: AudioBuffer;
++  /** The original file bytes, kept so the project can upload them when saving. */
++  bytes: ArrayBuffer;
+   mouth: MouthTrack;
+   /** SVG path (viewBox 0 0 240 20) of the loudness shape, drawn inside the timeline block. */
+   wave: string;
+@@ -44,13 +46,28 @@ export class AudioService {
+ 
+   /** Decodes an audio file and analyses it. Call from a click handler so the browser allows sound. */
+   async importFile(file: File): Promise<AudioAsset> {
++    return this.load(crypto.randomUUID().slice(0, 8), file.name, await file.arrayBuffer());
++  }
++
++  /** Re-creates an asset with its original id from saved bytes (opening a project). */
++  restore(id: string, name: string, bytes: ArrayBuffer): Promise<AudioAsset> {
++    return this.load(id, name, bytes);
++  }
++
++  /** Forgets every imported audio (new / opened project) and stops the sound. */
++  clearAll(): void {
++    this.stopAll();
++    this.assets.clear();
++  }
++
++  private async load(id: string, name: string, original: ArrayBuffer): Promise<AudioAsset> {
+     const ctx = this.context();
+-    const data = await file.arrayBuffer();
++    const bytes = original.slice(0); // decodeAudioData detaches its input, so keep a copy for saving
+     let buffer: AudioBuffer;
+     try {
+-      buffer = await ctx.decodeAudioData(data);
++      buffer = await ctx.decodeAudioData(original);
+     } catch {
+-      throw new Error(`"${file.name}" could not be decoded. Use a WAV, MP3, OGG or M4A file.`);
++      throw new Error(`"${name}" could not be decoded. Use a WAV, MP3, OGG or M4A file.`);
+     }
+     const mono = new Float32Array(buffer.length);
+     for (let c = 0; c < buffer.numberOfChannels; c++) {
+@@ -59,10 +76,11 @@ export class AudioService {
+     }
+     const env = computeEnvelope(mono, buffer.sampleRate);
+     const asset: AudioAsset = {
+-      id: crypto.randomUUID().slice(0, 8),
+-      name: file.name,
++      id,
++      name,
+       duration: Math.round(buffer.duration * 1000),
+       buffer,
++      bytes,
+       mouth: buildMouthTrack(env),
+       wave: this.wavePath(env),
+     };
+diff --git a/2DAnimation/2DAnimation.UI/src/app/core/services/project.service.ts b/2DAnimation/2DAnimation.UI/src/app/core/services/project.service.ts
+new file mode 100644
+index 0000000..231a1f2
+--- /dev/null
++++ b/2DAnimation/2DAnimation.UI/src/app/core/services/project.service.ts
+@@ -0,0 +1,289 @@
++import { HttpClient } from '@angular/common/http';
++import { Injectable, effect, inject, signal, untracked } from '@angular/core';
++import { firstValueFrom } from 'rxjs';
++import { API_BASE_URL } from '../api/api-health.service';
++import { emptyTimeline } from '../animation/animation-engine';
++import { ProjectDetail, ProjectSummary, SavedAudioAsset, SceneFileV1 } from '../models/project.models';
++import { AssetManifestService } from './asset-manifest.service';
++import { AudioService } from './audio.service';
++import { PlaybackService } from './playback.service';
++import { CharacterInstance, SceneStateService, STAGE_WIDTH } from './scene-state.service';
++
++const LAST_PROJECT_KEY = 'woa.lastProjectId';
++const DEFAULT_NAME = 'Untitled Project';
++const DEFAULT_DURATION = 10000;
++const AUTOSAVE_DELAY_MS = 3000;
++
++export interface ProjectMessage { kind: 'ok' | 'info' | 'err'; text: string }
++
++/**
++ * Phase 5: saving and opening projects.
++ * - Scene (characters, timelines, dialogue, audio placement) -> one JSON document in the database.
++ * - Imported audio files -> uploaded as raw bytes next to the project on the server (never inside the JSON).
++ */
++@Injectable({ providedIn: 'root' })
++export class ProjectService {
++  private readonly http = inject(HttpClient);
++  private readonly scene = inject(SceneStateService);
++  private readonly playback = inject(PlaybackService);
++  private readonly audio = inject(AudioService);
++  private readonly assets = inject(AssetManifestService);
++
++  readonly projectId = signal<string | null>(null);
++  readonly name = signal(DEFAULT_NAME);
++  /** True when the scene or name differs from what was last saved/opened. */
++  readonly dirty = signal(false);
++  readonly busy = signal(false);
++  readonly lastSaved = signal<Date | null>(null);
++  readonly autosave = signal(true);
++  readonly message = signal<ProjectMessage | null>(null);
++
++  private savedFingerprint = '';
++  /** Audio asset ids that already exist on the server for the current project. */
++  private readonly uploaded = new Set<string>();
++  /** Metadata of audio assets from the opened file, so a missing file does not make the reference disappear on save. */
++  private readonly knownAudio = new Map<string, SavedAudioAsset>();
++  private autosaveTimer?: ReturnType<typeof setTimeout>;
++  private messageTimer?: ReturnType<typeof setTimeout>;
++
++  constructor() {
++    this.savedFingerprint = this.fingerprint();
++    // Any edit (scene, name, timeline length) re-checks whether there is something to save.
++    effect(() => {
++      this.scene.state();
++      this.name();
++      this.playback.duration();
++      untracked(() => this.refreshDirty());
++    });
++  }
++
++  // ------------------------------------------------------------------ API calls
++
++  list(): Promise<ProjectSummary[]> {
++    return firstValueFrom(this.http.get<ProjectSummary[]>(`${API_BASE_URL}/projects`));
++  }
++
++  async remove(id: string): Promise<void> {
++    await firstValueFrom(this.http.delete(`${API_BASE_URL}/projects/${id}`));
++    if (this.projectId() === id) {
++      this.projectId.set(null);
++      this.uploaded.clear();
++      localStorage.removeItem(LAST_PROJECT_KEY);
++      this.savedFingerprint = ''; // the open scene is no longer stored anywhere
++      this.refreshDirty();
++    }
++  }
++
++  // ------------------------------------------------------------------ save
++
++  setName(value: string): void {
++    this.name.set(value);
++  }
++
++  /** Saves the project (creates it on the first save). Returns false when it failed. */
++  async save(): Promise<boolean> {
++    if (this.busy()) return false;
++    this.busy.set(true);
++    clearTimeout(this.autosaveTimer);
++    try {
++      const name = this.name().trim() || DEFAULT_NAME;
++      if (name !== this.name()) this.name.set(name);
++
++      let id = this.projectId();
++      if (!id) {
++        const created = await firstValueFrom(this.http.post<ProjectSummary>(`${API_BASE_URL}/projects`, { name }));
++        id = created.id;
++        this.projectId.set(id);
++        this.uploaded.clear();
++      }
++
++      // Snapshot first: edits made while uploading stay "unsaved" and are picked up by the next save.
++      const sceneJson = JSON.stringify(this.buildFile());
++      const fingerprint = this.fingerprint();
++
++      for (const a of this.usedAudio()) {
++        if (this.uploaded.has(a.id)) continue;
++        const asset = this.audio.asset(a.id);
++        if (!asset) continue; // file could not be restored earlier; keep the reference only
++        await firstValueFrom(this.http.put(`${API_BASE_URL}/projects/${id}/audio/${a.id}`, new Blob([asset.bytes]), {
++          headers: { 'Content-Type': 'application/octet-stream' },
++        }));
++        this.uploaded.add(a.id);
++      }
++
++      await firstValueFrom(this.http.put<ProjectSummary>(`${API_BASE_URL}/projects/${id}`, { name, sceneJson }));
++      this.savedFingerprint = fingerprint;
++      this.lastSaved.set(new Date());
++      localStorage.setItem(LAST_PROJECT_KEY, id);
++      this.refreshDirty();
++      this.notify('ok', 'Saved');
++      return true;
++    } catch (e) {
++      this.notify('err', `Could not save: ${this.describe(e)}`, 8000);
++      return false;
++    } finally {
++      this.busy.set(false);
++    }
++  }
++
++  // ------------------------------------------------------------------ open / new
++
++  /** Opens the project that was open last time (silently does nothing when there is none or the API is down). */
++  async openLast(): Promise<void> {
++    const id = localStorage.getItem(LAST_PROJECT_KEY);
++    if (!id) return;
++    try { await this.open(id, true); } catch { /* API offline or project deleted: keep the default scene */ }
++  }
++
++  async open(id: string, quiet = false): Promise<void> {
++    if (this.busy()) return;
++    this.busy.set(true);
++    try {
++      const detail = await firstValueFrom(this.http.get<ProjectDetail>(`${API_BASE_URL}/projects/${id}`));
++      const file = this.parse(detail.sceneJson);
++
++      this.playback.pause();
++      this.audio.clearAll();
++      this.uploaded.clear();
++      this.knownAudio.clear();
++
++      const missing: string[] = [];
++      for (const a of file.audioAssets) {
++        this.knownAudio.set(a.id, a);
++        try {
++          const bytes = await firstValueFrom(this.http.get(`${API_BASE_URL}/projects/${id}/audio/${a.id}`, { responseType: 'arraybuffer' }));
++          await this.audio.restore(a.id, a.name, bytes);
++          this.uploaded.add(a.id);
++        } catch { missing.push(a.name); }
++      }
++
++      const empty = !file.backgroundId && file.characters.length === 0;
++      if (empty) {
++        this.scene.resetScene();
++        await this.addDefaults();
++      } else {
++        this.scene.loadScene({
++          backgroundId: file.backgroundId,
++          characters: file.characters,
++          dialogues: file.dialogues,
++          audioClips: file.audioClips,
++        });
++      }
++      this.playback.duration.set(Math.max(DEFAULT_DURATION, file.duration));
++      this.playback.seek(0);
++
++      this.projectId.set(detail.id);
++      this.name.set(detail.name);
++      this.lastSaved.set(new Date(detail.updatedUtc));
++      localStorage.setItem(LAST_PROJECT_KEY, detail.id);
++      // "Clean" baseline = exactly what was just loaded.
++      this.savedFingerprint = this.fingerprint();
++      this.refreshDirty();
++      if (missing.length) this.notify('err', `Opened, but audio file(s) missing: ${missing.join(', ')}`, 9000);
++      else if (!quiet) this.notify('ok', `Opened "${detail.name}"`);
++    } catch (e) {
++      if (!quiet) this.notify('err', `Could not open the project: ${this.describe(e)}`, 8000);
++      throw e;
++    } finally {
++      this.busy.set(false);
++    }
++  }
++
++  /** Starts an empty project (default background + first character). The caller asks the user about unsaved changes. */
++  async newProject(): Promise<void> {
++    this.playback.pause();
++    this.audio.clearAll();
++    this.uploaded.clear();
++    this.knownAudio.clear();
++    this.scene.resetScene();
++    await this.addDefaults();
++    this.playback.duration.set(DEFAULT_DURATION);
++    this.playback.seek(0);
++    this.projectId.set(null);
++    this.name.set(DEFAULT_NAME);
++    this.lastSaved.set(null);
++    localStorage.removeItem(LAST_PROJECT_KEY);
++    this.savedFingerprint = this.fingerprint();
++    this.refreshDirty();
++  }
++
++  // ------------------------------------------------------------------ internals
++
++  private async addDefaults(): Promise<void> {
++    const manifest = await this.assets.getManifest();
++    const bg = manifest.backgrounds[0];
++    const ch = manifest.characters[0];
++    if (bg) this.scene.setBackground(bg.id);
++    if (ch) {
++      const def = bg ? (await this.assets.getBackground(bg.id)).def : undefined;
++      this.scene.addCharacter(ch.id, STAGE_WIDTH / 2, def?.groundY ?? 640, def?.defaultCharacterScale ?? 0.8);
++    }
++  }
++
++  private usedAudio(): SavedAudioAsset[] {
++    const out = new Map<string, SavedAudioAsset>();
++    for (const clip of this.scene.state().audioClips) {
++      if (out.has(clip.assetId)) continue;
++      const a = this.audio.asset(clip.assetId);
++      const meta = a ? { id: a.id, name: a.name, duration: a.duration } : this.knownAudio.get(clip.assetId);
++      if (meta) out.set(clip.assetId, meta);
++    }
++    return [...out.values()];
++  }
++
++  private buildFile(): SceneFileV1 {
++    const s = this.scene.state();
++    return {
++      schemaVersion: 1,
++      backgroundId: s.backgroundId,
++      characters: s.characters,
++      dialogues: s.dialogues,
++      audioClips: s.audioClips,
++      audioAssets: this.usedAudio(),
++      duration: this.playback.duration(),
++    };
++  }
++
++  private fingerprint(): string {
++    return `${this.name().trim()}\n${JSON.stringify(this.buildFile())}`;
++  }
++
++  /** Tolerant reader: an empty "{}" document (a project created but never saved) becomes an empty scene. */
++  private parse(json: string): SceneFileV1 {
++    let raw: Partial<SceneFileV1> = {};
++    try { raw = JSON.parse(json || '{}') as Partial<SceneFileV1>; } catch { throw new Error('The saved scene is corrupted.'); }
++    if (raw.schemaVersion !== undefined && raw.schemaVersion !== 1) throw new Error(`This project was saved by a newer version (schema ${raw.schemaVersion}).`);
++    const characters: CharacterInstance[] = (raw.characters ?? []).map(c => ({ ...c, timeline: c.timeline ?? emptyTimeline() }));
++    return {
++      schemaVersion: 1,
++      backgroundId: raw.backgroundId ?? null,
++      characters,
++      dialogues: raw.dialogues ?? [],
++      audioClips: raw.audioClips ?? [],
++      audioAssets: raw.audioAssets ?? [],
++      duration: typeof raw.duration === 'number' ? raw.duration : DEFAULT_DURATION,
++    };
++  }
++
++  private refreshDirty(): void {
++    const dirty = this.fingerprint() !== this.savedFingerprint;
++    this.dirty.set(dirty);
++    clearTimeout(this.autosaveTimer);
++    // Auto-save only for projects that already exist, so it never creates surprise projects.
++    if (dirty && this.autosave() && this.projectId() && !this.busy()) {
++      this.autosaveTimer = setTimeout(() => { void this.save(); }, AUTOSAVE_DELAY_MS);
++    }
++  }
++
++  private notify(kind: ProjectMessage['kind'], text: string, ms = 3000): void {
++    clearTimeout(this.messageTimer);
++    this.message.set({ kind, text });
++    this.messageTimer = setTimeout(() => this.message.set(null), ms);
++  }
++
++  private describe(e: unknown): string {
++    const err = e as { status?: number; message?: string; error?: { title?: string; detail?: string } };
++    if (err?.status === 0) return 'the API is not running (start 2DAnimation.API).';
++    return err?.error?.detail ?? err?.error?.title ?? err?.message ?? String(e);
++  }
++}
+diff --git a/2DAnimation/2DAnimation.UI/src/app/core/services/scene-state.service.ts b/2DAnimation/2DAnimation.UI/src/app/core/services/scene-state.service.ts
+index 349899c..6e5cfef 100644
+--- a/2DAnimation/2DAnimation.UI/src/app/core/services/scene-state.service.ts
++++ b/2DAnimation/2DAnimation.UI/src/app/core/services/scene-state.service.ts
+@@ -56,6 +56,17 @@ export class SceneStateService {
+     return s?.kind === 'audio' ? this.state().audioClips.find(a => a.id === s.id) ?? null : null;
+   });
+ 
++  /** Replaces the whole scene (opening a project / starting a new one). Selection is cleared. */
++  loadScene(scene: SceneState): void {
++    this.state.set(scene);
++    this.selectedId.set(scene.characters[0]?.instanceId ?? null);
++    this.selectedClip.set(null);
++  }
++
++  resetScene(): void {
++    this.loadScene({ backgroundId: null, characters: [], dialogues: [], audioClips: [] });
++  }
++
+   setBackground(backgroundId: string): void {
+     this.state.update(s => ({ ...s, backgroundId }));
+   }
+diff --git a/2DAnimation/2DAnimation.UI/src/app/editor/properties-panel/properties-panel.component.ts b/2DAnimation/2DAnimation.UI/src/app/editor/properties-panel/properties-panel.component.ts
+index f3a697e..49bae69 100644
+--- a/2DAnimation/2DAnimation.UI/src/app/editor/properties-panel/properties-panel.component.ts
++++ b/2DAnimation/2DAnimation.UI/src/app/editor/properties-panel/properties-panel.component.ts
+@@ -2,6 +2,10 @@ import { ChangeDetectionStrategy, Component, effect, inject } from '@angular/cor
+ import { FormControl, FormGroup, ReactiveFormsModule } from '@angular/forms';
+ import { SceneStateService } from '../../core/services/scene-state.service';
+ 
++const MIN_SCALE = 0.1;
++const MAX_SCALE = 4;
++const DEFAULT_SCALE = 0.8;
++
+ /** Right-hand panel. Edits the selected character's transform through the shared scene state. */
+ @Component({
+   selector: 'app-properties-panel',
+@@ -12,9 +16,29 @@ import { SceneStateService } from '../../core/services/scene-state.service';
+     @if (scene.selected(); as sel) {
+       <form [formGroup]="form" class="props">
+         <h3>{{ sel.characterId }}</h3>
++
++        <div class="size">
++          <div class="size-head">
++            <span>Size</span>
++            <strong>{{ percent(sel.scale) }}%</strong>
++          </div>
++          <div class="size-row">
++            <button type="button" (click)="nudge(-0.1)" title="Smaller" aria-label="Make smaller">−</button>
++            <input type="range" formControlName="scale" [min]="min" [max]="3" step="0.05" aria-label="Character size" />
++            <button type="button" (click)="nudge(0.1)" title="Bigger" aria-label="Make bigger">+</button>
++          </div>
++          <div class="size-presets">
++            <button type="button" (click)="setScale(0.5)">Small</button>
++            <button type="button" (click)="setScale(0.8)">Medium</button>
++            <button type="button" (click)="setScale(1.2)">Large</button>
++            <button type="button" (click)="setScale(defaultScale)" title="Back to the default size">Reset</button>
++          </div>
++          <small>Tip: drag the white dot on the selected character to resize on the stage.</small>
++        </div>
++
+         <label>Position X <input type="number" formControlName="x" step="1" /></label>
+         <label>Position Y <input type="number" formControlName="y" step="1" /></label>
+-        <label>Scale <input type="number" formControlName="scale" step="0.05" min="0.1" max="4" /></label>
++        <label>Scale <input type="number" formControlName="scale" step="0.05" [min]="min" [max]="max" /></label>
+         <label>Rotation (°) <input type="number" formControlName="rotation" step="1" /></label>
+         <label class="check"><input type="checkbox" formControlName="flipX" /> Flip horizontally</label>
+       </form>
+@@ -30,10 +54,21 @@ import { SceneStateService } from '../../core/services/scene-state.service';
+     input[type=number] { background: #14161a; color: #eef0f4; border: 1px solid #343842; border-radius: 4px; padding: 6px 8px; }
+     input:focus-visible { outline: 2px solid #4da3ff; outline-offset: 1px; }
+     .empty { color: #8b909b; font: 13px system-ui, sans-serif; }
++    .size { display: grid; gap: 6px; padding: 8px; border: 1px solid #30343d; border-radius: 8px; background: #161a21; }
++    .size-head { display: flex; justify-content: space-between; align-items: center; }
++    .size-row { display: grid; grid-template-columns: 30px minmax(0, 1fr) 30px; gap: 8px; align-items: center; }
++    .size-row button { padding: 2px 0; font-size: 16px; line-height: 1.2; }
++    .size-row input[type=range] { width: 100%; accent-color: #4da3ff; padding: 0; }
++    .size-presets { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; }
++    .size-presets button { padding: 4px 0; font-size: 12px; }
++    small { color: #8b909b; }
+   `],
+ })
+ export class PropertiesPanelComponent {
+   protected readonly scene = inject(SceneStateService);
++  protected readonly min = MIN_SCALE;
++  protected readonly max = MAX_SCALE;
++  protected readonly defaultScale = DEFAULT_SCALE;
+ 
+   protected readonly form = new FormGroup({
+     x: new FormControl(0, { nonNullable: true }),
+@@ -44,7 +79,7 @@ export class PropertiesPanelComponent {
+   });
+ 
+   constructor() {
+-    // scene state -> form (e.g. while dragging on the stage)
++    // scene state -> form (e.g. while dragging or resizing on the stage)
+     effect(() => {
+       const sel = this.scene.selected();
+       if (sel) this.form.patchValue({ x: sel.x, y: sel.y, scale: sel.scale, rotation: sel.rotation, flipX: sel.flipX }, { emitEvent: false });
+@@ -55,8 +90,27 @@ export class PropertiesPanelComponent {
+       if (!id) return;
+       const n = (val: unknown, fallback: number) => (typeof val === 'number' && Number.isFinite(val) ? val : fallback);
+       this.scene.updateCharacter(id, {
+-        x: n(v.x, 0), y: n(v.y, 0), scale: Math.max(0.1, n(v.scale, 1)), rotation: n(v.rotation, 0), flipX: !!v.flipX,
++        x: n(v.x, 0), y: n(v.y, 0), scale: this.clampScale(n(v.scale, 1)), rotation: n(v.rotation, 0), flipX: !!v.flipX,
+       });
+     });
+   }
++
++  protected percent(scale: number): number { return Math.round(scale * 100); }
++
++  protected nudge(delta: number): void {
++    const sel = this.scene.selected();
++    if (sel) this.setScale(sel.scale + delta);
++  }
++
++  protected setScale(value: number): void {
++    const id = this.scene.selectedId();
++    if (!id) return;
++    const scale = this.clampScale(value);
++    this.scene.updateCharacter(id, { scale });
++    this.form.patchValue({ scale }, { emitEvent: false });
++  }
++
++  private clampScale(v: number): number {
++    return Math.round(Math.min(MAX_SCALE, Math.max(MIN_SCALE, v)) * 100) / 100;
++  }
+ }
+diff --git a/2DAnimation/2DAnimation.UI/src/app/editor/toolbar/toolbar.component.css b/2DAnimation/2DAnimation.UI/src/app/editor/toolbar/toolbar.component.css
+index 7bed94d..b5e0f84 100644
+--- a/2DAnimation/2DAnimation.UI/src/app/editor/toolbar/toolbar.component.css
++++ b/2DAnimation/2DAnimation.UI/src/app/editor/toolbar/toolbar.component.css
+@@ -14,3 +14,26 @@
+ .chip i { width: 8px; height: 8px; border-radius: 50%; background: var(--warn); }
+ .chip.ok i { background: var(--ok); }
+ .chip.err i { background: var(--err); }
++
++/* ---- Phase 5: project save / open ---- */
++.save-state { color: var(--text-dim); white-space: nowrap; min-width: 110px; font-size: 12px; }
++.save-state.dirty { color: var(--warn); }
++.save-state.err { color: var(--err); white-space: normal; max-width: 280px; line-height: 1.2; }
++button.primary { border-color: var(--accent); }
++.auto { display: inline-flex; align-items: center; gap: 4px; color: var(--text-dim); font-size: 12px; white-space: nowrap; }
++
++.backdrop { position: fixed; inset: 0; z-index: 1000; display: grid; place-items: center; background: rgba(0, 0, 0, .55); }
++.dialog {
++  width: min(520px, 92vw); max-height: 70vh; display: flex; flex-direction: column;
++  background: var(--bg-1); border: 1px solid var(--border); border-radius: 10px; padding: 14px; box-shadow: 0 12px 40px rgba(0, 0, 0, .6);
++}
++.dialog-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
++.dialog-head h2 { margin: 0; font-size: 15px; }
++.note { color: var(--text-dim); margin: 8px 0; }
++.note.error { color: var(--err); }
++.plist { list-style: none; margin: 0; padding: 0; overflow: auto; display: grid; gap: 6px; }
++.plist li { display: grid; grid-template-columns: minmax(0, 1fr) 40px; gap: 6px; }
++.plist li.current .pick { border-color: var(--accent); }
++.pick { display: grid; gap: 2px; text-align: left; padding: 8px 10px; }
++.pick small { color: var(--text-dim); }
++.del { padding: 0; }
+diff --git a/2DAnimation/2DAnimation.UI/src/app/editor/toolbar/toolbar.component.html b/2DAnimation/2DAnimation.UI/src/app/editor/toolbar/toolbar.component.html
+index 230c892..167602c 100644
+--- a/2DAnimation/2DAnimation.UI/src/app/editor/toolbar/toolbar.component.html
++++ b/2DAnimation/2DAnimation.UI/src/app/editor/toolbar/toolbar.component.html
+@@ -1,10 +1,22 @@
+ <div class="bar">
+   <div class="brand">World of Animations</div>
+ 
+-  <input class="project-name" type="text" [value]="projectName" readonly aria-label="Project name" />
++  <input class="project-name" type="text" maxlength="200" [value]="project.name()" (input)="onName($event)"
++         aria-label="Project name" />
++  <span class="save-state" [class.dirty]="project.dirty() && !!project.projectId()"
++        [class.err]="project.message()?.kind === 'err'">
++    {{ project.message()?.text ?? statusText() }}
++  </span>
+ 
+   <div class="actions">
+-    <button type="button" disabled title="Phase 5: project saving">Save</button>
++    <button type="button" (click)="newProject()" [disabled]="project.busy()" title="Start an empty project">New</button>
++    <button type="button" (click)="openDialog()" [disabled]="project.busy()" title="Open a saved project">Open</button>
++    <button type="button" class="primary" (click)="save()" [disabled]="project.busy()" title="Save (Ctrl+S)">
++      Save{{ project.dirty() ? ' *' : '' }}
++    </button>
++    <label class="auto" title="Saves a few seconds after each change (for projects that were saved once)">
++      <input type="checkbox" [checked]="project.autosave()" (change)="toggleAutosave($event)" /> Auto-save
++    </label>
+     <button type="button" disabled title="Phase 7: undo">Undo</button>
+     <button type="button" disabled title="Phase 7: redo">Redo</button>
+     <button type="button" (click)="preview()" title="Play the scene from the start">Preview</button>
+@@ -22,3 +34,34 @@
+     </span>
+   </div>
+ </div>
++
++@if (dialogOpen()) {
++  <div class="backdrop" (click)="closeDialog()">
++    <div class="dialog" role="dialog" aria-modal="true" aria-label="Open project" (click)="$event.stopPropagation()">
++      <div class="dialog-head">
++        <h2>Open project</h2>
++        <button type="button" (click)="closeDialog()" aria-label="Close">✕</button>
++      </div>
++
++      @if (listLoading()) {
++        <p class="note">Loading…</p>
++      } @else if (listError()) {
++        <p class="note error">{{ listError() }}</p>
++      } @else if (projects().length === 0) {
++        <p class="note">No saved projects yet. Press Save to create the first one.</p>
++      } @else {
++        <ul class="plist">
++          @for (p of projects(); track p.id) {
++            <li [class.current]="p.id === project.projectId()">
++              <button type="button" class="pick" (click)="openProject(p)">
++                <strong>{{ p.name }}</strong>
++                <small>Saved {{ stamp(p.updatedUtc) }}</small>
++              </button>
++              <button type="button" class="del" (click)="deleteProject(p)" title="Delete project" aria-label="Delete project">🗑</button>
++            </li>
++          }
++        </ul>
++      }
++    </div>
++  </div>
++}
+diff --git a/2DAnimation/2DAnimation.UI/src/app/editor/toolbar/toolbar.component.ts b/2DAnimation/2DAnimation.UI/src/app/editor/toolbar/toolbar.component.ts
+index 52acb1f..8800b7f 100644
+--- a/2DAnimation/2DAnimation.UI/src/app/editor/toolbar/toolbar.component.ts
++++ b/2DAnimation/2DAnimation.UI/src/app/editor/toolbar/toolbar.component.ts
+@@ -1,7 +1,9 @@
+-import { Component, OnDestroy, OnInit, inject, signal } from '@angular/core';
++import { Component, HostListener, OnDestroy, OnInit, inject, signal } from '@angular/core';
+ import { Subscription, catchError, of, switchMap, timer } from 'rxjs';
+ import { ApiHealthService } from '../../core/api/api-health.service';
++import { ProjectSummary } from '../../core/models/project.models';
+ import { PlaybackService } from '../../core/services/playback.service';
++import { ProjectService } from '../../core/services/project.service';
+ 
+ type LinkState = 'checking' | 'ok' | 'error';
+ 
+@@ -13,12 +15,17 @@ type LinkState = 'checking' | 'ok' | 'error';
+ export class ToolbarComponent implements OnInit, OnDestroy {
+   private readonly health = inject(ApiHealthService);
+   private readonly playback = inject(PlaybackService);
++  protected readonly project = inject(ProjectService);
+   private sub?: Subscription;
+ 
+-  readonly projectName = 'Untitled Project';
+   readonly apiState = signal<LinkState>('checking');
+   readonly dbState = signal<LinkState>('checking');
+ 
++  readonly dialogOpen = signal(false);
++  readonly projects = signal<ProjectSummary[]>([]);
++  readonly listLoading = signal(false);
++  readonly listError = signal<string | null>(null);
++
+   ngOnInit(): void {
+     // Poll every 10 s so the status chips follow the backend starting/stopping.
+     this.sub = timer(0, 10_000)
+@@ -38,6 +45,13 @@ export class ToolbarComponent implements OnInit, OnDestroy {
+         this.apiState.set(result.api === 'ok' ? 'ok' : 'error');
+         this.dbState.set(result.database === 'ok' ? 'ok' : 'error');
+       });
++
++    // Continue where the user left off last time.
++    void this.project.openLast();
++  }
++
++  ngOnDestroy(): void {
++    this.sub?.unsubscribe();
+   }
+ 
+   /** Plays the whole scene from the beginning. */
+@@ -47,7 +61,84 @@ export class ToolbarComponent implements OnInit, OnDestroy {
+     this.playback.play();
+   }
+ 
+-  ngOnDestroy(): void {
+-    this.sub?.unsubscribe();
++  onName(event: Event): void {
++    this.project.setName((event.target as HTMLInputElement).value);
++  }
++
++  save(): void { void this.project.save(); }
++
++  async newProject(): Promise<void> {
++    if (this.project.dirty() && !confirm('You have unsaved changes. Start a new project anyway?')) return;
++    await this.project.newProject();
++  }
++
++  async openDialog(): Promise<void> {
++    this.dialogOpen.set(true);
++    await this.refreshList();
++  }
++
++  closeDialog(): void { this.dialogOpen.set(false); }
++
++  async openProject(p: ProjectSummary): Promise<void> {
++    if (this.project.dirty() && !confirm('You have unsaved changes. Open another project anyway?')) return;
++    try {
++      await this.project.open(p.id);
++      this.closeDialog();
++    } catch { /* the message is shown in the toolbar */ }
++  }
++
++  async deleteProject(p: ProjectSummary): Promise<void> {
++    if (!confirm(`Delete "${p.name}" permanently? This cannot be undone.`)) return;
++    try {
++      await this.project.remove(p.id);
++      await this.refreshList();
++    } catch {
++      this.listError.set('Could not delete the project.');
++    }
++  }
++
++  toggleAutosave(event: Event): void {
++    this.project.autosave.set((event.target as HTMLInputElement).checked);
++  }
++
++  stamp(iso: string): string {
++    return new Date(iso).toLocaleString();
++  }
++
++  statusText(): string {
++    if (this.project.busy()) return 'Working…';
++    if (!this.project.projectId()) return 'Not saved yet';
++    if (this.project.dirty()) return 'Unsaved changes';
++    const t = this.project.lastSaved();
++    return t ? `Saved ${t.toLocaleTimeString()}` : 'Saved';
++  }
++
++  private async refreshList(): Promise<void> {
++    this.listLoading.set(true);
++    this.listError.set(null);
++    try {
++      this.projects.set(await this.project.list());
++    } catch {
++      this.projects.set([]);
++      this.listError.set('Could not load projects. Is the API running?');
++    } finally {
++      this.listLoading.set(false);
++    }
++  }
++
++  @HostListener('document:keydown', ['$event'])
++  onKey(e: KeyboardEvent): void {
++    if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's') {
++      e.preventDefault();
++      this.save();
++    } else if (e.key === 'Escape' && this.dialogOpen()) {
++      this.closeDialog();
++    }
++  }
++
++  /** Browser warning when closing the tab with unsaved work. */
++  @HostListener('window:beforeunload', ['$event'])
++  onUnload(e: BeforeUnloadEvent): void {
++    if (this.project.dirty()) e.preventDefault();
+   }
+ }
+diff --git a/docs/PHASE5.md b/docs/PHASE5.md
+new file mode 100644
+index 0000000..47be0fa
+--- /dev/null
++++ b/docs/PHASE5.md
+@@ -0,0 +1,30 @@
++# Phase 5 — Save / Open projects (+ character size, background fit fix)
++
++Copy the files over the repo (same relative paths). **No new npm / NuGet packages, no database migration** (the existing `Projects.SceneJson` column is used).
++
++## Extra step
++Add this line to `.gitignore` (audio files are stored here and should not be committed):
++`/2DAnimation/2DAnimation.API/storage/`
++
++## What changed
++- **Character size**: Properties panel now has a Size slider, −/+ buttons, Small/Medium/Large/Reset presets.
++  On the stage, the selected character has a white round handle (top-right corner): drag it to resize.
++  Range 10% – 400%.
++- **Background fit fix**: the stage was measuring the whole editor grid instead of its own cell, so it was too big and got cut off.
++  It now measures its own cell. The background also uses "cover" fit (no stretching for non-16:9 images).
++- **Save / Open (Phase 5)**: toolbar has New / Open / Save (Ctrl+S), project name box, save status, Auto-save.
++  Scene JSON -> database. Imported audio files -> `API/storage/projects/{projectId}/audio/{assetId}`.
++  The last project is re-opened automatically on startup.
++
++## API (new)
++`GET /api/projects/{id}`, `PUT /api/projects/{id}`, `DELETE /api/projects/{id}`,
++`PUT /api/projects/{id}/audio/{assetId}` (raw bytes), `GET /api/projects/{id}/audio/{assetId}`.
++Storage folder can be moved with `"Storage": { "Root": "D:\\woa-data" }` in appsettings.
++
++## Verified
++- `ng build` (Angular 19 + PixiJS 8) compiles with no errors.
++- NOT verified: C# API (no .NET SDK / NuGet in my sandbox) and the browser behaviour (resize handle, fit, save/open round trip).
++
++## Known limits
++- Auto-save only runs for projects that were saved once. Unused audio files stay on disk until the project is deleted.
++- Walk/Run distance is calculated when the action is added; resizing afterwards does not change already-added keyframes.

@@ -14,6 +14,7 @@ var connectionString = builder.Configuration.GetConnectionString("StudioDb")
 
 builder.Services.AddDbContext<AppDbContext>(options => options.UseSqlServer(connectionString));
 builder.Services.AddScoped<IProjectService, ProjectService>();
+builder.Services.AddSingleton<IProjectFileStore, ProjectFileStore>();
 
 var app = builder.Build();
 

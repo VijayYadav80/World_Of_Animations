@@ -56,6 +56,17 @@ export class SceneStateService {
     return s?.kind === 'audio' ? this.state().audioClips.find(a => a.id === s.id) ?? null : null;
   });
 
+  /** Replaces the whole scene (opening a project / starting a new one). Selection is cleared. */
+  loadScene(scene: SceneState): void {
+    this.state.set(scene);
+    this.selectedId.set(scene.characters[0]?.instanceId ?? null);
+    this.selectedClip.set(null);
+  }
+
+  resetScene(): void {
+    this.loadScene({ backgroundId: null, characters: [], dialogues: [], audioClips: [] });
+  }
+
   setBackground(backgroundId: string): void {
     this.state.update(s => ({ ...s, backgroundId }));
   }

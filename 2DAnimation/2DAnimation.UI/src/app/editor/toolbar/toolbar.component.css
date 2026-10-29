@@ -14,3 +14,26 @@
 .chip i { width: 8px; height: 8px; border-radius: 50%; background: var(--warn); }
 .chip.ok i { background: var(--ok); }
 .chip.err i { background: var(--err); }
+
+/* ---- Phase 5: project save / open ---- */
+.save-state { color: var(--text-dim); white-space: nowrap; min-width: 110px; font-size: 12px; }
+.save-state.dirty { color: var(--warn); }
+.save-state.err { color: var(--err); white-space: normal; max-width: 280px; line-height: 1.2; }
+button.primary { border-color: var(--accent); }
+.auto { display: inline-flex; align-items: center; gap: 4px; color: var(--text-dim); font-size: 12px; white-space: nowrap; }
+
+.backdrop { position: fixed; inset: 0; z-index: 1000; display: grid; place-items: center; background: rgba(0, 0, 0, .55); }
+.dialog {
+  width: min(520px, 92vw); max-height: 70vh; display: flex; flex-direction: column;
+  background: var(--bg-1); border: 1px solid var(--border); border-radius: 10px; padding: 14px; box-shadow: 0 12px 40px rgba(0, 0, 0, .6);
+}
+.dialog-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
+.dialog-head h2 { margin: 0; font-size: 15px; }
+.note { color: var(--text-dim); margin: 8px 0; }
+.note.error { color: var(--err); }
+.plist { list-style: none; margin: 0; padding: 0; overflow: auto; display: grid; gap: 6px; }
+.plist li { display: grid; grid-template-columns: minmax(0, 1fr) 40px; gap: 6px; }
+.plist li.current .pick { border-color: var(--accent); }
+.pick { display: grid; gap: 2px; text-align: left; padding: 8px 10px; }
+.pick small { color: var(--text-dim); }
+.del { padding: 0; }

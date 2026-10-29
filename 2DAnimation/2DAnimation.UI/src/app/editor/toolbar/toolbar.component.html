@@ -1,10 +1,22 @@
 <div class="bar">
   <div class="brand">World of Animations</div>
 
-  <input class="project-name" type="text" [value]="projectName" readonly aria-label="Project name" />
+  <input class="project-name" type="text" maxlength="200" [value]="project.name()" (input)="onName($event)"
+         aria-label="Project name" />
+  <span class="save-state" [class.dirty]="project.dirty() && !!project.projectId()"
+        [class.err]="project.message()?.kind === 'err'">
+    {{ project.message()?.text ?? statusText() }}
+  </span>
 
   <div class="actions">
-    <button type="button" disabled title="Phase 5: project saving">Save</button>
+    <button type="button" (click)="newProject()" [disabled]="project.busy()" title="Start an empty project">New</button>
+    <button type="button" (click)="openDialog()" [disabled]="project.busy()" title="Open a saved project">Open</button>
+    <button type="button" class="primary" (click)="save()" [disabled]="project.busy()" title="Save (Ctrl+S)">
+      Save{{ project.dirty() ? ' *' : '' }}
+    </button>
+    <label class="auto" title="Saves a few seconds after each change (for projects that were saved once)">
+      <input type="checkbox" [checked]="project.autosave()" (change)="toggleAutosave($event)" /> Auto-save
+    </label>
     <button type="button" disabled title="Phase 7: undo">Undo</button>
     <button type="button" disabled title="Phase 7: redo">Redo</button>
     <button type="button" (click)="preview()" title="Play the scene from the start">Preview</button>
@@ -22,3 +34,34 @@
     </span>
   </div>
 </div>
+
+@if (dialogOpen()) {
+  <div class="backdrop" (click)="closeDialog()">
+    <div class="dialog" role="dialog" aria-modal="true" aria-label="Open project" (click)="$event.stopPropagation()">
+      <div class="dialog-head">
+        <h2>Open project</h2>
+        <button type="button" (click)="closeDialog()" aria-label="Close">✕</button>
+      </div>
+
+      @if (listLoading()) {
+        <p class="note">Loading…</p>
+      } @else if (listError()) {
+        <p class="note error">{{ listError() }}</p>
+      } @else if (projects().length === 0) {
+        <p class="note">No saved projects yet. Press Save to create the first one.</p>
+      } @else {
+        <ul class="plist">
+          @for (p of projects(); track p.id) {
+            <li [class.current]="p.id === project.projectId()">
+              <button type="button" class="pick" (click)="openProject(p)">
+                <strong>{{ p.name }}</strong>
+                <small>Saved {{ stamp(p.updatedUtc) }}</small>
+              </button>
+              <button type="button" class="del" (click)="deleteProject(p)" title="Delete project" aria-label="Delete project">🗑</button>
+            </li>
+          }
+        </ul>
+      }
+    </div>
+  </div>
+}

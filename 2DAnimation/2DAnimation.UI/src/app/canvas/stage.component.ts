@@ -1,7 +1,7 @@
 import {
   AfterViewInit, ChangeDetectionStrategy, Component, ElementRef, NgZone, OnDestroy, ViewChild, effect, inject, signal,
 } from '@angular/core';
-import { Application, Assets, Container, FederatedPointerEvent, Graphics, Rectangle, Sprite, Text, Texture } from 'pixi.js';
+import { Application, Assets, Circle, Container, FederatedPointerEvent, Graphics, Rectangle, Sprite, Text, Texture } from 'pixi.js';
 import { evaluatePose, evaluatePosition } from '../core/animation/animation-engine';
 import { activeDialogue, mouthState } from '../core/dialogue/lipsync';
 import { DialogueClip } from '../core/models/dialogue.models';
@@ -15,6 +15,8 @@ interface CharacterView {
   holder: Container;      // positioned/scaled/rotated/flipped by scene state
   rig: RigCharacter;
   selection: Graphics;
+  /** Round grip at the corner of the selection box: drag it to make the character bigger or smaller. */
+  handle: Graphics;
   /** Speech bubble (lives in bubbleLayer so it is never flipped or scaled with the character). */
   bubble: Container;
   bubbleBg: Graphics;
@@ -29,6 +31,9 @@ const BUBBLE_PAD = 18;
 const BUBBLE_TAIL = 16;
 const BUBBLE_FONT = "'Noto Sans Devanagari', 'Nirmala UI', 'Mangal', 'Segoe UI', system-ui, sans-serif";
 const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v));
+export const MIN_CHARACTER_SCALE = 0.1;
+export const MAX_CHARACTER_SCALE = 4;
+const HANDLE_RADIUS = 11;
 
 /** 16:9 PixiJS stage. Renders the scene state; user drags write back into the scene state. */
 @Component({
@@ -75,6 +80,8 @@ export class StageComponent implements AfterViewInit, OnDestroy {
   private readonly creating = new Set<string>();
   private currentBackgroundId: string | null = null;
   private dragging?: { id: string; dx: number; dy: number };
+  /** Active drag of the size handle: scale = startScale * (pointer distance from the feet / startDist). */
+  private resizing?: { id: string; startDist: number; startScale: number };
   private destroyed = false;
   private ready = signal(false);
   private groundY = 640;
@@ -115,8 +122,8 @@ export class StageComponent implements AfterViewInit, OnDestroy {
       app.stage.hitArea = new Rectangle(0, 0, STAGE_WIDTH, STAGE_HEIGHT);
       app.stage.on('pointerdown', (e: FederatedPointerEvent) => { if (e.target === app.stage) this.scene.select(null); });
       app.stage.on('pointermove', (e: FederatedPointerEvent) => this.onDragMove(e));
-      app.stage.on('pointerup', () => (this.dragging = undefined));
-      app.stage.on('pointerupoutside', () => (this.dragging = undefined));
+      app.stage.on('pointerup', () => this.endDrag());
+      app.stage.on('pointerupoutside', () => this.endDrag());
 
       // Every frame: pose + position come from the deterministic engine at the current playhead time.
       app.ticker.add(() => this.tick());
@@ -130,10 +137,13 @@ export class StageComponent implements AfterViewInit, OnDestroy {
         const manifest = await this.assets.getManifest();
         const bg = manifest.backgrounds[0];
         const ch = manifest.characters[0];
-        if (bg) this.scene.setBackground(bg.id);
+        if (bg && !this.scene.state().backgroundId) this.scene.setBackground(bg.id);
         if (ch && this.scene.state().characters.length === 0) {
           const { def } = bg ? await this.assets.getBackground(bg.id) : { def: undefined };
-          this.scene.addCharacter(ch.id, STAGE_WIDTH / 2, def?.groundY ?? this.groundY, def?.defaultCharacterScale ?? 0.8);
+          // A saved project may have been opened while the assets were loading: do not add a second character then.
+          if (this.scene.state().characters.length === 0) {
+            this.scene.addCharacter(ch.id, STAGE_WIDTH / 2, def?.groundY ?? this.groundY, def?.defaultCharacterScale ?? 0.8);
+          }
         }
       }
       this.ready.set(true);
@@ -152,21 +162,29 @@ export class StageComponent implements AfterViewInit, OnDestroy {
     this.app = undefined;
   }
 
-  /** Keeps the 16:9 stage fully visible inside whatever panel it is placed in. */
+  /**
+   * Keeps the 16:9 stage fully visible inside the centre panel.
+   * BUG FIX: this used to measure the *parent* (the whole editor grid), so the stage was sized for the full window
+   * and its edges were cut off by the side panels / timeline. The host element itself is the centre grid cell, so measure that.
+   */
   private setupFit(): void {
     const el = this.self.nativeElement as HTMLElement;
     const parent = el.parentElement;
     if (!parent) return;
+    // :host is position:absolute; inset:0 -> it needs a positioned parent to be placed inside its grid cell.
     if (getComputedStyle(parent).position === 'static') parent.style.position = 'relative';
     const fit = () => {
-      const w = parent.clientWidth, h = parent.clientHeight;
+      const w = el.clientWidth, h = el.clientHeight;
       if (!w || !h) return;
-      const k = Math.min(w / STAGE_WIDTH, h / STAGE_HEIGHT);
+      const pad = 8; // small breathing room around the stage
+      const k = Math.min((w - pad * 2) / STAGE_WIDTH, (h - pad * 2) / STAGE_HEIGHT);
+      if (k <= 0) return;
       this.wrap.nativeElement.style.width = `${Math.floor(STAGE_WIDTH * k)}px`;
       this.wrap.nativeElement.style.height = `${Math.floor(STAGE_HEIGHT * k)}px`;
     };
     fit();
     this.resizeObserver = new ResizeObserver(fit);
+    this.resizeObserver.observe(el);
     this.resizeObserver.observe(parent);
   }
 
@@ -185,10 +203,16 @@ export class StageComponent implements AfterViewInit, OnDestroy {
       if (this.destroyed || this.currentBackgroundId !== id) return;
       this.backgroundLayer.removeChildren().forEach(c => c.destroy());
       const sprite = new Sprite(tex);
-      sprite.width = STAGE_WIDTH;     // 16:9 background fills the stage
-      sprite.height = STAGE_HEIGHT;
+      // "Cover" fit: the image always fills the whole 16:9 stage without stretching (extra edges are cropped, centred).
+      // A 16:9 background (like the village street) fits exactly; photos of other shapes no longer look squashed.
+      const k = Math.max(STAGE_WIDTH / tex.width, STAGE_HEIGHT / tex.height);
+      sprite.scale.set(k);
+      sprite.position.set((STAGE_WIDTH - tex.width * k) / 2, (STAGE_HEIGHT - tex.height * k) / 2);
       sprite.eventMode = 'none';      // background never reacts to pointer, so it can't be dragged by accident
-      this.backgroundLayer.addChild(sprite);
+      const mask = new Graphics().rect(0, 0, STAGE_WIDTH, STAGE_HEIGHT).fill(0xffffff);
+      mask.eventMode = 'none';
+      sprite.mask = mask;
+      this.backgroundLayer.addChild(sprite, mask);
       this.groundY = def.groundY;
     } catch (e) {
       this.currentBackgroundId = null;
@@ -262,7 +286,22 @@ export class StageComponent implements AfterViewInit, OnDestroy {
         .rect(b.x, b.y, b.width, b.height)
         .stroke({ width: 2, color: 0x4da3ff, alpha: 0.9 });
       selection.eventMode = 'none';
-      holder.addChild(rig.root, selection);
+      const handle = new Graphics()
+        .circle(0, 0, HANDLE_RADIUS).fill(0xffffff).stroke({ width: 3, color: 0x4da3ff });
+      handle.eventMode = 'static';
+      handle.cursor = 'nwse-resize';
+      handle.hitArea = new Circle(0, 0, HANDLE_RADIUS + 8);
+      handle.visible = false;
+      handle.on('pointerdown', (e: FederatedPointerEvent) => {
+        e.stopPropagation();
+        const cur = this.scene.state().characters.find(c => c.instanceId === inst.instanceId);
+        if (!cur) return;
+        const p = e.getLocalPosition(this.world);
+        const at = evaluatePosition(cur.timeline, this.playback.time()) ?? { x: cur.x, y: cur.y };
+        this.scene.select(inst.instanceId);
+        this.resizing = { id: inst.instanceId, startDist: Math.max(20, Math.hypot(p.x - at.x, p.y - at.y)), startScale: cur.scale };
+      });
+      holder.addChild(rig.root, selection, handle);
       holder.eventMode = 'static';
       holder.cursor = 'move';
       holder.hitArea = new Rectangle(b.x, b.y, b.width, b.height);
@@ -288,7 +327,7 @@ export class StageComponent implements AfterViewInit, OnDestroy {
       bubble.visible = false;
       this.bubbleLayer.addChild(bubble);
 
-      const view: CharacterView = { holder, rig, selection, bubble, bubbleBg, bubbleLabel, bubbleText: '', bubbleTail: -1 };
+      const view: CharacterView = { holder, rig, selection, handle, bubble, bubbleBg, bubbleLabel, bubbleText: '', bubbleTail: -1 };
       this.views.set(inst.instanceId, view);
       const latest = this.scene.state().characters.find(c => c.instanceId === inst.instanceId) ?? inst;
       this.applyInstance(view, latest, this.scene.selectedId() === inst.instanceId);
@@ -307,9 +346,31 @@ export class StageComponent implements AfterViewInit, OnDestroy {
     h.rotation = ((inst.flipX ? -inst.rotation : inst.rotation) * Math.PI) / 180;
     h.zIndex = p.y; // lower on screen = in front
     view.selection.visible = selected;
+    // The handle sits on the top-right corner *as seen on screen* (mirrored when the character is flipped)
+    // and is counter-scaled so it keeps the same size however big or small the character is.
+    const b = view.rig.def.bounds;
+    view.handle.visible = selected;
+    view.handle.position.set(inst.flipX ? b.x : b.x + b.width, b.y);
+    view.handle.scale.set(1 / Math.max(inst.scale, 0.01));
+  }
+
+  private endDrag(): void {
+    this.dragging = undefined;
+    this.resizing = undefined;
   }
 
   private onDragMove(e: FederatedPointerEvent): void {
+    if (this.resizing) {
+      const r = this.resizing;
+      const cur = this.scene.state().characters.find(c => c.instanceId === r.id);
+      if (!cur) return;
+      const p = e.getLocalPosition(this.world);
+      const at = evaluatePosition(cur.timeline, this.playback.time()) ?? { x: cur.x, y: cur.y };
+      const dist = Math.hypot(p.x - at.x, p.y - at.y);
+      const scale = clamp(r.startScale * (dist / r.startDist), MIN_CHARACTER_SCALE, MAX_CHARACTER_SCALE);
+      this.scene.updateCharacter(r.id, { scale: Math.round(scale * 100) / 100 });
+      return;
+    }
     if (!this.dragging) return;
     const p = e.getLocalPosition(this.world);
     const x = Math.min(STAGE_WIDTH, Math.max(0, p.x + this.dragging.dx));

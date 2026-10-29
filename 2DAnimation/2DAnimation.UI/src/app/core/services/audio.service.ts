@@ -10,6 +10,8 @@ export interface AudioAsset {
   /** ms */
   duration: number;
   buffer: AudioBuffer;
+  /** The original file bytes, kept so the project can upload them when saving. */
+  bytes: ArrayBuffer;
   mouth: MouthTrack;
   /** SVG path (viewBox 0 0 240 20) of the loudness shape, drawn inside the timeline block. */
   wave: string;
@@ -44,13 +46,28 @@ export class AudioService {
 
   /** Decodes an audio file and analyses it. Call from a click handler so the browser allows sound. */
   async importFile(file: File): Promise<AudioAsset> {
+    return this.load(crypto.randomUUID().slice(0, 8), file.name, await file.arrayBuffer());
+  }
+
+  /** Re-creates an asset with its original id from saved bytes (opening a project). */
+  restore(id: string, name: string, bytes: ArrayBuffer): Promise<AudioAsset> {
+    return this.load(id, name, bytes);
+  }
+
+  /** Forgets every imported audio (new / opened project) and stops the sound. */
+  clearAll(): void {
+    this.stopAll();
+    this.assets.clear();
+  }
+
+  private async load(id: string, name: string, original: ArrayBuffer): Promise<AudioAsset> {
     const ctx = this.context();
-    const data = await file.arrayBuffer();
+    const bytes = original.slice(0); // decodeAudioData detaches its input, so keep a copy for saving
     let buffer: AudioBuffer;
     try {
-      buffer = await ctx.decodeAudioData(data);
+      buffer = await ctx.decodeAudioData(original);
     } catch {
-      throw new Error(`"${file.name}" could not be decoded. Use a WAV, MP3, OGG or M4A file.`);
+      throw new Error(`"${name}" could not be decoded. Use a WAV, MP3, OGG or M4A file.`);
     }
     const mono = new Float32Array(buffer.length);
     for (let c = 0; c < buffer.numberOfChannels; c++) {
@@ -59,10 +76,11 @@ export class AudioService {
     }
     const env = computeEnvelope(mono, buffer.sampleRate);
     const asset: AudioAsset = {
-      id: crypto.randomUUID().slice(0, 8),
-      name: file.name,
+      id,
+      name,
       duration: Math.round(buffer.duration * 1000),
       buffer,
+      bytes,
       mouth: buildMouthTrack(env),
       wave: this.wavePath(env),
     };
