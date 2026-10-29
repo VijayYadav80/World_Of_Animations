@@ -1,0 +1,20 @@
+:host { display: flex; flex-direction: column; background: var(--bg-1); border-top: 1px solid var(--border); }
+
+.head { display: flex; align-items: center; gap: 8px; padding: 6px 10px; border-bottom: 1px solid var(--border); }
+.time { font-variant-numeric: tabular-nums; margin-left: 8px; }
+.hint { margin-left: auto; color: var(--text-dim); }
+
+.grid { flex: 1; display: grid; grid-template-columns: 140px minmax(0, 1fr); min-height: 0; overflow-y: auto; }
+.labels, .lanes { display: grid; grid-auto-rows: 44px; }
+.labels { border-right: 1px solid var(--border); }
+.label { display: flex; align-items: center; padding: 0 12px; border-bottom: 1px solid var(--border); color: var(--text-dim); }
+
+.lanes { position: relative; margin: 0 12px 0 0; }
+.ruler { position: relative; border-bottom: 1px solid var(--border); }
+.tick { position: absolute; top: 12px; transform: translateX(-50%); font-size: 11px; color: var(--text-dim); }
+.tick::before { content: ""; position: absolute; left: 50%; top: -12px; height: 10px; border-left: 1px solid var(--border); }
+
+.lane { display: flex; align-items: center; padding: 0 10px; border-bottom: 1px solid var(--border); background: var(--bg-2); }
+.empty { color: var(--text-dim); font-size: 12px; }
+
+.playhead { position: absolute; top: 0; bottom: 0; width: 2px; background: var(--accent); pointer-events: none; }

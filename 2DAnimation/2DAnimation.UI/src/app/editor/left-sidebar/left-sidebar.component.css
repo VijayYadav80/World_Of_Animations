@@ -1,0 +1,5 @@
+:host { display: block; background: var(--bg-1); border-right: 1px solid var(--border); overflow-y: auto; }
+
+.tabs { display: flex; flex-wrap: wrap; gap: 4px; padding: 8px; }
+.tabs button { padding: 4px 10px; font-size: 12px; }
+.tabs button.active { background: var(--accent); border-color: var(--accent); color: #1a1205; }

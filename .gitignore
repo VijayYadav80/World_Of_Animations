@@ -7,3 +7,11 @@
 /2DAnimation/2DAnimation.API/obj
 /2DAnimation/2DAnimation.DB/obj/Debug
 /2DAnimation/2DAnimation.UI/.vscode
+
+# World of Animations: local data
+appsettings.Local.json
+/assets/exports/
+/backups/
+/2DAnimation/2DAnimation.API/bin/Debug/net8.0
+/2DAnimation/2DAnimation.UI/obj/Debug
+/README.md

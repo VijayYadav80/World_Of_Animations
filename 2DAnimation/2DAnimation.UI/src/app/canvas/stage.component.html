@@ -1,0 +1,26 @@
+<div class="stage-toolbar">
+  <button type="button" (click)="zoomOut()" aria-label="Zoom out">−</button>
+  <button type="button" (click)="resetZoom()" title="Reset zoom">{{ zoomPercent() }}%</button>
+  <button type="button" (click)="zoomIn()" aria-label="Zoom in">+</button>
+  <label class="guides">
+    <input type="checkbox" [checked]="showGuides()" (change)="showGuides.set(!showGuides())" />
+    Safe-area guides
+  </label>
+  <span class="hint">Stage {{ stageWidth }} × {{ stageHeight }} (16:9)</span>
+</div>
+
+<div #viewport class="viewport">
+  <div class="stage-frame" [style.width.px]="stageWidth * scale()" [style.height.px]="stageHeight * scale()">
+    <div class="stage" [style.width.px]="stageWidth" [style.height.px]="stageHeight"
+         [style.transform]="'scale(' + scale() + ')'">
+      <div class="stage-label">
+        PixiJS stage placeholder<br />
+        <small>Phase 2 renders the village background and Raju here</small>
+      </div>
+      @if (showGuides()) {
+        <div class="guide action-safe"></div>
+        <div class="guide title-safe"></div>
+      }
+    </div>
+  </div>
+</div>

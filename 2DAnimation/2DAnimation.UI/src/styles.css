@@ -1,1 +1,63 @@
-/* You can add global styles to this file, and also import other style files */
+:root {
+  --bg-0: #0f1115;
+  --bg-1: #161a21;
+  --bg-2: #1d222b;
+  --bg-3: #262c37;
+  --border: #2c3340;
+  --text: #e6e9ef;
+  --text-dim: #8d96a7;
+  --accent: #ff9f43;
+  --ok: #3ddc84;
+  --warn: #ffcc4d;
+  --err: #ff5c5c;
+  color-scheme: dark;
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  height: 100%;
+  margin: 0;
+  background: var(--bg-0);
+  color: var(--text);
+  font: 13px/1.4 "Segoe UI", system-ui, -apple-system, "Noto Sans Devanagari", sans-serif;
+  overflow: hidden;
+}
+
+button, input, select, textarea { font: inherit; color: inherit; }
+
+button {
+  background: var(--bg-3);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 5px 12px;
+  cursor: pointer;
+}
+button:hover:not(:disabled) { border-color: var(--accent); }
+button:disabled { opacity: .45; cursor: not-allowed; }
+
+input, select {
+  background: var(--bg-0);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 5px 8px;
+}
+input:disabled, select:disabled { opacity: .5; }
+
+.panel-title {
+  margin: 0;
+  padding: 10px 12px;
+  font-size: 11px;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+  border-bottom: 1px solid var(--border);
+}
+
+.phase-note {
+  margin: 12px;
+  padding: 10px 12px;
+  border: 1px dashed var(--border);
+  border-radius: 6px;
+  color: var(--text-dim);
+}

@@ -1,0 +1,24 @@
+<div class="bar">
+  <div class="brand">World of Animations</div>
+
+  <input class="project-name" type="text" [value]="projectName" readonly aria-label="Project name" />
+
+  <div class="actions">
+    <button type="button" disabled title="Phase 5: project saving">Save</button>
+    <button type="button" disabled title="Phase 7: undo">Undo</button>
+    <button type="button" disabled title="Phase 7: redo">Redo</button>
+    <button type="button" disabled title="Phase 4: scene preview">Preview</button>
+    <button type="button" disabled title="Phase 6: WebM export">Export Video</button>
+  </div>
+
+  <div class="status">
+    <span class="chip" [class.ok]="apiState() === 'ok'" [class.err]="apiState() === 'error'"
+          title="ASP.NET Core API (http://localhost:5223)">
+      <i></i>API
+    </span>
+    <span class="chip" [class.ok]="dbState() === 'ok'" [class.err]="dbState() === 'error'"
+          title="SQL Server database">
+      <i></i>Database
+    </span>
+  </div>
+</div>

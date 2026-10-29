@@ -5,17 +5,6 @@
   "projects": {
     "2DAnimation.UI": {
       "projectType": "application",
-      "schematics": {
-        "@schematics/angular:component": {
-          "standalone": false
-        },
-        "@schematics/angular:directive": {
-          "standalone": false
-        },
-        "@schematics/angular:pipe": {
-          "standalone": false
-        }
-      },
       "root": "",
       "sourceRoot": "src",
       "prefix": "app",
@@ -77,7 +66,8 @@
           },
           "defaultConfiguration": "development",
           "options": {
-            "port": 65061
+            "port": 65061,
+            "proxyConfig": "proxy.conf.json"
           }
         },
         "extract-i18n": {

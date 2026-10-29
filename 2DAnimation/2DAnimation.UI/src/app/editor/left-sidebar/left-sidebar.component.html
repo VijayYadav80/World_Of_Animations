@@ -1,0 +1,11 @@
+<nav class="tabs" role="tablist">
+  @for (tab of tabs; track tab.id) {
+    <button type="button" role="tab" [class.active]="tab.id === activeId()"
+            [attr.aria-selected]="tab.id === activeId()" (click)="activeId.set(tab.id)">
+      {{ tab.label }}
+    </button>
+  }
+</nav>
+
+<h2 class="panel-title">{{ active.label }}</h2>
+<p class="phase-note">{{ active.note }}</p>

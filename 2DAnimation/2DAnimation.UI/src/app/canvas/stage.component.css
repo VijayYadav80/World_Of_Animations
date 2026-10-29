@@ -1,0 +1,27 @@
+:host { display: flex; flex-direction: column; background: var(--bg-0); }
+
+.stage-toolbar {
+  display: flex; align-items: center; gap: 8px;
+  padding: 6px 10px; background: var(--bg-1); border-bottom: 1px solid var(--border);
+}
+.stage-toolbar button { padding: 3px 10px; min-width: 34px; }
+.guides { display: flex; align-items: center; gap: 6px; margin-left: 12px; color: var(--text-dim); }
+.hint { margin-left: auto; color: var(--text-dim); }
+
+.viewport { flex: 1; min-height: 0; overflow: auto; display: flex; padding: 16px; }
+.stage-frame { margin: auto; flex: none; }
+
+.stage {
+  position: relative; transform-origin: top left;
+  background: linear-gradient(#6ec6ff 0%, #bfe6ff 55%, #c9a66b 55%, #a98650 100%);
+  box-shadow: 0 8px 30px rgba(0, 0, 0, .55);
+}
+.stage-label {
+  position: absolute; inset: 0; display: grid; place-content: center; text-align: center;
+  font-size: 34px; font-weight: 600; color: rgba(20, 30, 50, .6);
+}
+.stage-label small { font-size: 20px; font-weight: 400; }
+
+.guide { position: absolute; border: 2px dashed rgba(255, 255, 255, .7); pointer-events: none; }
+.action-safe { inset: 5%; }
+.title-safe { inset: 10%; border-color: rgba(255, 159, 67, .9); }

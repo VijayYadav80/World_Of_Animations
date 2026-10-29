@@ -1,0 +1,16 @@
+:host { display: block; background: var(--bg-1); border-bottom: 1px solid var(--border); }
+
+.bar { display: flex; align-items: center; gap: 16px; height: 48px; padding: 0 14px; }
+.brand { font-weight: 700; color: var(--accent); white-space: nowrap; }
+.project-name { width: 220px; }
+.actions { display: flex; gap: 6px; }
+.status { margin-left: auto; display: flex; gap: 10px; }
+
+.chip {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 3px 10px; border-radius: 999px;
+  background: var(--bg-2); border: 1px solid var(--border); color: var(--text-dim);
+}
+.chip i { width: 8px; height: 8px; border-radius: 50%; background: var(--warn); }
+.chip.ok i { background: var(--ok); }
+.chip.err i { background: var(--err); }

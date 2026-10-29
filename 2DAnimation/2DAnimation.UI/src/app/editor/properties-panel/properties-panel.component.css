@@ -1,0 +1,5 @@
+:host { display: block; background: var(--bg-1); border-left: 1px solid var(--border); overflow-y: auto; }
+
+.fields { display: grid; gap: 10px; padding: 0 12px 12px; }
+label { display: grid; gap: 4px; color: var(--text-dim); font-size: 12px; }
+label.check { display: flex; align-items: center; gap: 8px; }

@@ -1,0 +1,28 @@
+<div class="head">
+  <button type="button" disabled title="Phase 3: playback">⏮</button>
+  <button type="button" disabled title="Phase 3: playback">▶</button>
+  <button type="button" disabled title="Phase 3: playback">⏭</button>
+  <span class="time">{{ format(playhead()) }} / {{ format(sceneDuration()) }}</span>
+  <span class="hint">Time unit: milliseconds. Playback and seeking arrive in Phase 3.</span>
+</div>
+
+<div class="grid">
+  <div class="labels">
+    <div class="label ruler-label">Time</div>
+    @for (track of tracks; track track.id) {
+      <div class="label">{{ track.label }}</div>
+    }
+  </div>
+
+  <div class="lanes">
+    <div class="ruler">
+      @for (tick of ticks(); track tick.left) {
+        <span class="tick" [style.left.%]="tick.left">{{ tick.label }}</span>
+      }
+    </div>
+    @for (track of tracks; track track.id) {
+      <div class="lane" [title]="track.note"><span class="empty">{{ track.note }}</span></div>
+    }
+    <div class="playhead" [style.left.%]="playheadPercent()"></div>
+  </div>
+</div>
