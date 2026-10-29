@@ -1,0 +1,6 @@
+@_2DAnimation.API_HostAddress = http://localhost:5223
+
+GET {{_2DAnimation.API_HostAddress}}/weatherforecast/
+Accept: application/json
+
+###

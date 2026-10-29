@@ -1,0 +1,9 @@
+﻿################################################################################
+# This .gitignore file was automatically created by Microsoft(R) Visual Studio.
+################################################################################
+
+/.vs
+/2DAnimation/.vs/2DAnimation
+/2DAnimation/2DAnimation.API/obj
+/2DAnimation/2DAnimation.DB/obj/Debug
+/2DAnimation/2DAnimation.UI/.vscode
