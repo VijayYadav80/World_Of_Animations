@@ -32,6 +32,12 @@ export interface SceneState {
   /** Imported voice audio placed on the Audio track (Phase 4). */
   audioClips: AudioClip[];
 }
+/** "raju" -> "Raju"; imported "user-char-my-hero-1a2b3c4d" -> "My hero". */
+export function prettyCharacterName(characterId: string): string {
+  const name = characterId.replace(/^user-char-/, '').replace(/-[0-9a-f]{8}$/, '').replace(/-/g, ' ').trim() || characterId;
+  return name.charAt(0).toUpperCase() + name.slice(1);
+}
+
 
 /** The dialogue/audio block currently selected in the timeline. */
 export interface ClipSelection { kind: 'dialogue' | 'audio'; id: string }
@@ -45,6 +51,20 @@ export class SceneStateService {
   readonly selected = computed(
     () => this.state().characters.find(c => c.instanceId === this.selectedId()) ?? null
   );
+  /** Unique, readable name for every character in the scene ("Raju", "Raju 2", ...), so two copies are never confused. */
+  readonly labels = computed(() => {
+    const seen = new Map<string, number>();
+    const out = new Map<string, string>();
+    for (const c of this.state().characters) {
+      const n = (seen.get(c.characterId) ?? 0) + 1;
+      seen.set(c.characterId, n);
+      const base = prettyCharacterName(c.characterId);
+      out.set(c.instanceId, n === 1 ? base : `${base} ${n}`);
+    }
+    return out;
+  });
+  label(instanceId: string): string { return this.labels().get(instanceId) ?? '—'; }
+
   /** Selected dialogue/audio block in the timeline (null when none). */
   readonly selectedClip = signal<ClipSelection | null>(null);
   readonly selectedDialogue = computed(() => {

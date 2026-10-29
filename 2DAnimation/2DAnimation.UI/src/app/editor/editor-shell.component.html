@@ -1,4 +1,4 @@
-<div class="editor">
+<div class="editor" [style.--tl-h]="timelineHeight() + 'px'">
   <app-toolbar class="area-toolbar" />
   <app-left-sidebar class="area-left" />
   <app-stage class="area-stage" />
@@ -18,4 +18,7 @@
   </aside>
 
   <app-timeline-panel class="area-timeline" />
+  <div class="resizer" [class.drag]="resizing()" role="separator" aria-orientation="horizontal" aria-label="Resize timeline"
+       title="Drag to resize the timeline" (pointerdown)="startResize($event)" (pointermove)="onResize($event)"
+       (pointerup)="endResize($event)" (pointercancel)="endResize($event)"></div>
 </div>

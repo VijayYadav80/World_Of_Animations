@@ -49,7 +49,7 @@
     <label>Character
       <select (change)="onDialogueChar(d.id, $event)">
         @for (c of characters(); track c.instanceId) {
-          <option [value]="c.instanceId" [selected]="c.instanceId === d.characterId">{{ c.characterId }}</option>
+          <option [value]="c.instanceId" [selected]="c.instanceId === d.characterId">{{ scene.label(c.instanceId) }}</option>
         }
       </select>
     </label>
@@ -71,7 +71,7 @@
       <select (change)="onAudioChar(a.id, $event)">
         <option value="" [selected]="!a.characterId">(none)</option>
         @for (c of characters(); track c.instanceId) {
-          <option [value]="c.instanceId" [selected]="c.instanceId === a.characterId">{{ c.characterId }}</option>
+          <option [value]="c.instanceId" [selected]="c.instanceId === a.characterId">{{ scene.label(c.instanceId) }}</option>
         }
       </select>
     </label>

@@ -21,27 +21,61 @@
 
   @switch (activeId()) {
     @case ('backgrounds') {
+      <button type="button" class="primary wide" (click)="pickBackground()">+ Add scene image</button>
+      <input #bgInput type="file" hidden accept="image/png,image/jpeg,image/webp,image/svg+xml" (change)="onBackgroundPicked($event)" />
+      <p class="hint">Use a landscape picture (16:9 fits best). It is saved in this browser only.</p>
+      @if (bgMessage()) { <p class="error">{{ bgMessage() }}</p> }
       <div class="grid">
         @for (b of backgrounds(); track b.id) {
-          <button type="button" class="thumb" [class.on]="scene.state().backgroundId === b.id" (click)="setBackground(b.id)" [title]="'Use ' + b.name">
-            <img [src]="b.thumb" [alt]="b.name" loading="lazy" />
-            <span class="cap">{{ b.name }}</span>
-            @if (scene.state().backgroundId === b.id) { <span class="tick">In use</span> }
-          </button>
+          <div class="thumb-wrap">
+            <button type="button" class="thumb" [class.on]="scene.state().backgroundId === b.id" (click)="setBackground(b.id)" [title]="'Use ' + b.name">
+              <img [src]="b.thumb" [alt]="b.name" loading="lazy" />
+              <span class="cap">{{ b.name }}</span>
+              @if (scene.state().backgroundId === b.id) { <span class="tick">In use</span> }
+              @if (b.mine) { <span class="mine">Mine</span> }
+            </button>
+            @if (b.mine) {
+              <button type="button" class="ghost icon danger del" (click)="removeBackground(b.id)" title="Remove this scene" aria-label="Remove this scene">
+                <svg viewBox="0 0 24 24" class="i"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/></svg>
+              </button>
+            }
+          </div>
         } @empty {
-          <p class="hint">No backgrounds found in assets/manifest.json.</p>
+          <p class="hint">No scenes found in assets/manifest.json.</p>
         }
       </div>
     }
 
     @case ('characters') {
-      <h3 class="sub">Library</h3>
-      <div class="list">
+      <div class="split">
+        <button type="button" class="primary" (click)="pickCharacterFolder()" [disabled]="busy()" title="Pick a character folder that contains rig.json and its parts">+ Import folder</button>
+        <button type="button" (click)="pickCharacterFiles()" [disabled]="busy()" title="Pick rig.json and all part images together">+ Import files</button>
+      </div>
+      <input #folderInput type="file" hidden multiple webkitdirectory (change)="onCharacterPicked($event)" />
+      <input #filesInput type="file" hidden multiple accept=".json,image/png,image/jpeg,image/webp,image/svg+xml" (change)="onCharacterPicked($event)" />
+      @if (charMessage()) { <p class="hint note">{{ charMessage() }}</p> }
+
+      <h3 class="sub">Library <span class="count">{{ characters().length }}</span></h3>
+      <div class="cards">
         @for (c of characters(); track c.id) {
-          <div class="row">
-            <span class="avatar">{{ c.name.charAt(0) }}</span>
-            <span class="grow"><strong>{{ c.name }}</strong><small>Rigged character</small></span>
-            <button type="button" class="primary" (click)="addCharacter(c.id)" title="Add to the scene">+ Add</button>
+          <div class="card">
+            <div class="pv">
+              @if (preview(c.id); as url) {
+                <img [src]="url" [alt]="c.name + ' preview'" />
+              } @else {
+                <span class="avatar">{{ initial(c.name) }}</span>
+              }
+              @if (c.mine) { <span class="mine">Mine</span> }
+            </div>
+            <strong class="clip">{{ c.name }}</strong>
+            <div class="card-actions">
+              <button type="button" class="primary grow" (click)="addCharacter(c.id)" title="Add to the scene">+ Add</button>
+              @if (c.mine) {
+                <button type="button" class="ghost icon danger" (click)="removeCharacterAsset(c.id)" title="Remove this character from the library" aria-label="Remove this character from the library">
+                  <svg viewBox="0 0 24 24" class="i"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/></svg>
+                </button>
+              }
+            </div>
           </div>
         } @empty {
           <p class="hint">No characters found in assets/manifest.json.</p>
@@ -53,8 +87,10 @@
         @for (c of scene.state().characters; track c.instanceId) {
           <div class="row" [class.on]="scene.selectedId() === c.instanceId">
             <button type="button" class="pick grow" (click)="scene.select(c.instanceId)">
-              <span class="avatar sm">{{ c.characterId.charAt(0).toUpperCase() }}</span>
-              <span class="grow"><strong>{{ c.characterId }}</strong><small>{{ (c.scale * 100).toFixed(0) }}% · {{ c.timeline.clips.length }} actions</small></span>
+              <span class="avatar sm pvs">
+                @if (preview(c.characterId); as url) { <img [src]="url" alt="" /> } @else { {{ initial(scene.label(c.instanceId)) }} }
+              </span>
+              <span class="grow"><strong>{{ scene.label(c.instanceId) }}</strong><small>{{ (c.scale * 100).toFixed(0) }}% · {{ c.timeline.clips.length }} actions</small></span>
             </button>
             <button type="button" class="ghost icon danger" (click)="scene.removeCharacter(c.instanceId)" title="Remove from scene" aria-label="Remove from scene">
               <svg viewBox="0 0 24 24" class="i"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/></svg>
@@ -75,13 +111,34 @@
     }
 
     @case ('dialogue') {
-      <button type="button" class="primary wide" (click)="addDialogue()" [disabled]="scene.state().characters.length === 0">+ New dialogue at playhead</button>
+      @if (scene.state().characters.length === 0) {
+        <p class="hint">Add a character first (Cast tab), then write its lines here.</p>
+      } @else {
+        <div class="composer">
+          <label>Who speaks
+            <select (change)="onDraftCharacter($event)">
+              @for (c of scene.state().characters; track c.instanceId) {
+                <option [value]="c.instanceId" [selected]="c.instanceId === dialogueTarget()">{{ scene.label(c.instanceId) }}</option>
+              }
+            </select>
+          </label>
+          <label>Line (Hindi or any language)
+            <textarea rows="3" lang="hi" placeholder="यहाँ संवाद लिखें…" [value]="draftText()" (input)="onDraftText($event)"></textarea>
+          </label>
+          <button type="button" class="primary wide" (click)="addDialogue()" [disabled]="!draftText().trim()">+ Add line at {{ seconds(playback.time()) }}s</button>
+        </div>
+      }
       <div class="list">
         @for (d of scene.state().dialogues; track d.id) {
-          <button type="button" class="row pick" [class.on]="scene.selectedDialogue()?.id === d.id" (click)="openDialogue(d.id, d.start)">
-            <span class="avatar sm">{{ characterName(d.characterId).charAt(0).toUpperCase() }}</span>
-            <span class="grow"><strong lang="hi" class="clip">{{ d.text || '(empty)' }}</strong><small>{{ characterName(d.characterId) }} · {{ seconds(d.start) }}s · {{ seconds(d.duration) }}s long</small></span>
-          </button>
+          <div class="row" [class.on]="scene.selectedDialogue()?.id === d.id">
+            <button type="button" class="pick grow" (click)="openDialogue(d.id, d.start)">
+              <span class="avatar sm">{{ initial(characterName(d.characterId)) }}</span>
+              <span class="grow"><strong lang="hi" class="clip">{{ d.text || '(empty)' }}</strong><small>{{ characterName(d.characterId) }} · {{ seconds(d.start) }}s · {{ seconds(d.duration) }}s long</small></span>
+            </button>
+            <button type="button" class="ghost icon danger" (click)="scene.removeDialogue(d.id)" title="Delete this line" aria-label="Delete this line">
+              <svg viewBox="0 0 24 24" class="i"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/></svg>
+            </button>
+          </div>
         } @empty {
           <div class="empty-state">
             <span class="badge"><svg viewBox="0 0 24 24" class="i"><path d="M21 12a8 8 0 0 1-11.6 7.1L4 20l1-4.6A8 8 0 1 1 21 12z"/></svg></span>
@@ -93,13 +150,33 @@
     }
 
     @case ('audio') {
-      <p class="hint top">Use <b>Import audio</b> in the timeline to add a voice recording.</p>
+      <div class="composer">
+        <label>Voice of (mouth follows the sound)
+          <select (change)="onAudioVoice($event)">
+            <option value="" [selected]="!audioVoice()">Selected character</option>
+            @for (c of scene.state().characters; track c.instanceId) {
+              <option [value]="c.instanceId" [selected]="c.instanceId === audioVoice()">{{ scene.label(c.instanceId) }}</option>
+            }
+          </select>
+        </label>
+        <button type="button" class="primary wide" (click)="pickAudio()" [disabled]="busy()">+ Import audio at {{ seconds(playback.time()) }}s</button>
+        @if (scene.selectedDialogue(); as d) {
+          <button type="button" class="wide" (click)="attachAudio(d.id)" [disabled]="busy()">Attach audio to the selected line</button>
+        }
+        <input #audioInput type="file" hidden accept="audio/*,.wav,.mp3,.ogg,.m4a" (change)="onAudioPicked($event)" />
+      </div>
+      @if (audioMessage()) { <p class="error">{{ audioMessage() }}</p> }
       <div class="list">
         @for (a of scene.state().audioClips; track a.id) {
-          <button type="button" class="row pick" [class.on]="scene.selectedAudio()?.id === a.id" (click)="openAudio(a.id, a.start)">
-            <span class="avatar sm audio"><svg viewBox="0 0 24 24" class="i sm"><path d="M9 18V5l11-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="17" cy="16" r="3"/></svg></span>
-            <span class="grow"><strong class="clip">{{ a.name }}</strong><small>{{ seconds(a.start) }}s · {{ seconds(a.duration) }}s long</small></span>
-          </button>
+          <div class="row" [class.on]="scene.selectedAudio()?.id === a.id">
+            <button type="button" class="pick grow" (click)="openAudio(a.id, a.start)">
+              <span class="avatar sm audio"><svg viewBox="0 0 24 24" class="i sm"><path d="M9 18V5l11-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="17" cy="16" r="3"/></svg></span>
+              <span class="grow"><strong class="clip">{{ a.name }}</strong><small>{{ seconds(a.start) }}s · {{ seconds(a.duration) }}s long</small></span>
+            </button>
+            <button type="button" class="ghost icon danger" (click)="scene.removeAudio(a.id)" title="Delete this audio" aria-label="Delete this audio">
+              <svg viewBox="0 0 24 24" class="i"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/></svg>
+            </button>
+          </div>
         } @empty {
           <div class="empty-state">
             <span class="badge"><svg viewBox="0 0 24 24" class="i"><path d="M9 18V5l11-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="17" cy="16" r="3"/></svg></span>

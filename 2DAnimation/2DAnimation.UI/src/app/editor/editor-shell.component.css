@@ -7,7 +7,7 @@
   padding: 10px;
   gap: 10px;
   grid-template-columns: 290px minmax(0, 1fr) 320px;
-  grid-template-rows: 54px minmax(0, 1fr) 250px;
+  grid-template-rows: 54px minmax(0, 1fr) var(--tl-h, 300px);
   grid-template-areas:
     "toolbar  toolbar  toolbar"
     "left     stage    right"
@@ -44,7 +44,7 @@
 @media (max-width: 760px) {
   .editor {
     grid-template-columns: 210px minmax(0, 1fr);
-    grid-template-rows: 54px minmax(0, 1fr) 250px;
+    grid-template-rows: 54px minmax(0, 1fr) var(--tl-h, 300px);
     grid-template-areas:
       "toolbar toolbar"
       "left    stage"
@@ -52,3 +52,8 @@
   }
   .area-right { display: none; }
 }
+
+/* drag handle on the top edge of the timeline: pull up for more rows, down for a bigger stage */
+.resizer { grid-area: timeline; align-self: start; height: 10px; margin-top: -5px; z-index: 5; cursor: row-resize; touch-action: none; }
+.resizer::after { content: ""; display: block; width: 44px; height: 4px; margin: 3px auto; border-radius: 4px; background: var(--border-strong, #3a4150); opacity: .8; }
+.resizer:hover::after, .resizer.drag::after { background: var(--accent, #7c8cff); opacity: 1; }

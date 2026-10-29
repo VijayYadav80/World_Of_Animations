@@ -18,7 +18,7 @@ const DEFAULT_SCALE = 0.8;
         <header class="who">
           <span class="avatar">{{ sel.characterId.charAt(0).toUpperCase() }}</span>
           <div>
-            <h3>{{ sel.characterId }}</h3>
+            <h3>{{ scene.label(sel.instanceId) }}</h3>
             <small>{{ sel.timeline.clips.length }} actions on the timeline</small>
           </div>
         </header>

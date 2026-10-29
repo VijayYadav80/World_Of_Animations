@@ -43,3 +43,34 @@
 .avatar.audio { background: linear-gradient(135deg, #f59e0b, #ef4444); }
 
 .wide { width: 100%; padding: 9px 12px; }
+
+/* scenes: remove button over the thumbnail */
+.thumb-wrap { position: relative; }
+.thumb-wrap .del { position: absolute; top: 6px; left: 6px; background: rgba(0, 0, 0, .55); border-radius: 8px; }
+.mine { position: absolute; bottom: 38px; right: 8px; padding: 1px 7px; border-radius: 99px; font-size: 10.5px; font-weight: 600; color: #fff; background: rgba(0, 0, 0, .6); }
+
+/* character cards with a live preview */
+.split { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.hint.note { padding: 8px 10px; border: 1px dashed var(--border); border-radius: 10px; }
+.cards { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+.card { display: flex; flex-direction: column; gap: 6px; padding: 8px; border: 1px solid var(--border); border-radius: 12px; background: var(--bg-2); }
+.card .pv { position: relative; aspect-ratio: 3 / 4; display: grid; place-items: center; border-radius: 9px; background: var(--bg-3); overflow: hidden; }
+.card .pv img { position: absolute; inset: 4px; width: calc(100% - 8px); height: calc(100% - 8px); object-fit: contain; }
+.card .pv .mine { bottom: 6px; right: 6px; }
+.card-actions { display: flex; gap: 6px; }
+.card-actions { align-items: center; }
+.card-actions .primary { padding: 5px 8px; white-space: nowrap; }
+.card-actions .icon { flex: none; }
+.avatar.pvs { overflow: hidden; background: var(--bg-3); }
+.avatar.pvs img { width: 100%; height: 100%; object-fit: contain; }
+
+/* dialogue / audio composer */
+.composer { display: grid; gap: 8px; }
+.composer label { display: grid; gap: 4px; font-size: 11.5px; color: var(--text-dim); }
+.composer textarea, .composer select { width: 100%; font-size: 13px; }
+.composer textarea { resize: vertical; min-height: 64px; font-family: 'Noto Sans Devanagari', 'Nirmala UI', 'Mangal', 'Segoe UI', system-ui, sans-serif; }
+
+/* long dialogue / file names must truncate instead of pushing the delete button out of the panel */
+.row { min-width: 0; }
+.row .pick { min-width: 0; overflow: hidden; }
+.row .pick .grow { min-width: 0; overflow: hidden; }

@@ -91,14 +91,14 @@ export class TimelinePanelComponent {
     characters.forEach((c, i) => {
       const color = COLORS[i % COLORS.length];
       rows.push({
-        key: `a-${c.instanceId}`, kind: 'action', label: `${c.characterId} · Actions`, characterId: c.instanceId,
+        key: `a-${c.instanceId}`, kind: 'action', label: `${this.scene.label(c.instanceId)} · Actions`, characterId: c.instanceId,
         blocks: c.timeline.clips.map(k => ({
           id: k.id, kind: 'action' as const, label: k.clipId.replace(/-/g, ' '), title: `${k.clipId}  ${formatTime(k.start)} – ${formatTime(k.start + k.duration)}`,
           left: k.start * ppm, width: Math.max(4, k.duration * ppm), color, selected: c.instanceId === selChar, characterId: c.instanceId, linked: false,
         })),
       });
       rows.push({
-        key: `d-${c.instanceId}`, kind: 'dialogue', label: `${c.characterId} · Dialogue`, characterId: c.instanceId,
+        key: `d-${c.instanceId}`, kind: 'dialogue', label: `${this.scene.label(c.instanceId)} · Dialogue`, characterId: c.instanceId,
         blocks: dialogues.filter(d => d.characterId === c.instanceId).map(d => ({
           id: d.id, kind: 'dialogue' as const, label: d.text || '(empty)', title: `${d.text}\n${formatTime(d.start)} – ${formatTime(d.start + d.duration)}`,
           left: d.start * ppm, width: Math.max(6, d.duration * ppm), color, selected: selClip?.kind === 'dialogue' && selClip.id === d.id, linked: !!d.audioId,
