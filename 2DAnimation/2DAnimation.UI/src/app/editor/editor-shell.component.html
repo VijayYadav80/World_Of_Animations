@@ -2,6 +2,16 @@
   <app-toolbar class="area-toolbar" />
   <app-left-sidebar class="area-left" />
   <app-stage class="area-stage" />
-  <app-properties-panel class="area-right" />
+
+  <aside class="area-right right-stack" aria-label="Character properties and actions">
+    <section class="right-section properties-section">
+      <app-properties-panel />
+    </section>
+    <section class="right-section actions-section">
+      <h3 class="section-heading">Character Actions</h3>
+      <app-action-panel />
+    </section>
+  </aside>
+
   <app-timeline-panel class="area-timeline" />
 </div>
