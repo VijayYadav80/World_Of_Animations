@@ -1,0 +1,9 @@
+{
+  "schemaVersion": 1,
+  "characters": [
+    { "id": "raju", "displayName": "Raju", "rig": "characters/raju/rig.json" }
+  ],
+  "backgrounds": [
+    { "id": "village-street-01", "displayName": "Indian village street", "meta": "backgrounds/village-street-01/background.json" }
+  ]
+}

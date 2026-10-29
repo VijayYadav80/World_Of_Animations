@@ -13,13 +13,10 @@
   <div class="stage-frame" [style.width.px]="stageWidth * scale()" [style.height.px]="stageHeight * scale()">
     <div class="stage" [style.width.px]="stageWidth" [style.height.px]="stageHeight"
          [style.transform]="'scale(' + scale() + ')'">
-      <div class="stage-label">
-        PixiJS stage placeholder<br />
-        <small>Phase 2 renders the village background and Raju here</small>
-      </div>
+      <app-stage />
       @if (showGuides()) {
-        <div class="guide action-safe"></div>
-        <div class="guide title-safe"></div>
+      <div class="guide action-safe"></div>
+      <div class="guide title-safe"></div>
       }
     </div>
   </div>

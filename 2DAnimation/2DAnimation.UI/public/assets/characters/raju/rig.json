@@ -1,0 +1,73 @@
+{
+  "schemaVersion": 1,
+  "id": "raju",
+  "displayName": "Raju",
+  "assetVersion": "1.0.0",
+  "partsBasePath": "parts/",
+  "facing": "right",
+  "bounds": { "x": -90, "y": -430, "width": 180, "height": 440 },
+  "rootBone": "hip",
+  "bones": [
+    { "id": "hip", "parent": null, "x": 0, "y": -178 },
+
+    { "id": "torso", "parent": "hip", "x": 0, "y": 0, "z": 0,
+      "part": { "src": "torso.svg", "pivotX": 45, "pivotY": 120 } },
+    { "id": "head", "parent": "torso", "x": 0, "y": -112, "z": 2,
+      "part": { "src": "head.svg", "pivotX": 55, "pivotY": 125 } },
+    { "id": "hair", "parent": "head", "x": 0, "y": -121, "z": 2,
+      "part": { "src": "hair.svg", "pivotX": 60, "pivotY": 0 } },
+    { "id": "eyes", "parent": "head", "x": 6, "y": -57, "z": 1,
+      "part": { "pivotX": 28, "pivotY": 12, "defaultVariant": "open",
+                "variants": { "open": "eyes-open.svg", "closed": "eyes-closed.svg" } } },
+    { "id": "brows", "parent": "head", "x": 6, "y": -74, "z": 1,
+      "part": { "src": "brows.svg", "pivotX": 30, "pivotY": 7 } },
+    { "id": "mouth", "parent": "head", "x": 8, "y": -34, "z": 1,
+      "part": { "pivotX": 15, "pivotY": 8, "defaultVariant": "closed",
+                "variants": { "closed": "mouth-closed.svg", "open": "mouth-open.svg", "smile": "mouth-smile.svg" } } },
+
+    { "id": "upperArmF", "parent": "torso", "x": 8, "y": -100, "z": 3,
+      "part": { "src": "upper-arm.svg", "pivotX": 13, "pivotY": 10 } },
+    { "id": "forearmF", "parent": "upperArmF", "x": 0, "y": 60, "z": 1,
+      "part": { "src": "forearm.svg", "pivotX": 11, "pivotY": 8 } },
+    { "id": "handF", "parent": "forearmF", "x": 0, "y": 56, "z": 1,
+      "part": { "src": "hand.svg", "pivotX": 12, "pivotY": 5 } },
+
+    { "id": "upperArmB", "parent": "torso", "x": -8, "y": -100, "z": -1,
+      "part": { "src": "upper-arm.svg", "pivotX": 13, "pivotY": 10 } },
+    { "id": "forearmB", "parent": "upperArmB", "x": 0, "y": 60, "z": 1,
+      "part": { "src": "forearm.svg", "pivotX": 11, "pivotY": 8 } },
+    { "id": "handB", "parent": "forearmB", "x": 0, "y": 56, "z": 1,
+      "part": { "src": "hand.svg", "pivotX": 12, "pivotY": 5 } },
+
+    { "id": "upperLegF", "parent": "hip", "x": 8, "y": 0, "z": -1,
+      "part": { "src": "upper-leg.svg", "pivotX": 17, "pivotY": 10 } },
+    { "id": "lowerLegF", "parent": "upperLegF", "x": 0, "y": 80, "z": 1,
+      "part": { "src": "lower-leg.svg", "pivotX": 15, "pivotY": 8 } },
+    { "id": "footF", "parent": "lowerLegF", "x": 0, "y": 84, "z": 1,
+      "part": { "src": "foot.svg", "pivotX": 14, "pivotY": 4 } },
+
+    { "id": "upperLegB", "parent": "hip", "x": -8, "y": 0, "z": -2,
+      "part": { "src": "upper-leg.svg", "pivotX": 17, "pivotY": 10 } },
+    { "id": "lowerLegB", "parent": "upperLegB", "x": 0, "y": 80, "z": 1,
+      "part": { "src": "lower-leg.svg", "pivotX": 15, "pivotY": 8 } },
+    { "id": "footB", "parent": "lowerLegB", "x": 0, "y": 84, "z": 1,
+      "part": { "src": "foot.svg", "pivotX": 14, "pivotY": 4 } }
+  ],
+  "defaultPose": {
+    "rotations": {
+      "torso": 0, "head": 0,
+      "upperArmF": -6, "forearmF": -10, "handF": 0,
+      "upperArmB": 5, "forearmB": -6, "handB": 0,
+      "upperLegF": 3, "lowerLegF": 0, "footF": -3,
+      "upperLegB": -3, "lowerLegB": 0, "footB": 3
+    },
+    "variants": { "eyes": "open", "mouth": "closed" }
+  },
+  "expressions": {
+    "neutral": { "eyes": "open", "mouth": "closed" },
+    "happy":   { "eyes": "open", "mouth": "smile" },
+    "talk":    { "eyes": "open", "mouth": "open" },
+    "blink":   { "eyes": "closed", "mouth": "closed" }
+  },
+  "animations": []
+}
