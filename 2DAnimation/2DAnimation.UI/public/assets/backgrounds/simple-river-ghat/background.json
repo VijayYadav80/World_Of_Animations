@@ -1,0 +1,11 @@
+{
+  "schemaVersion": 1,
+  "id": "simple-river-ghat",
+  "displayName": "River Ghat (Simple)",
+  "assetVersion": "1.0.0",
+  "image": "background.svg",
+  "width": 1280,
+  "height": 720,
+  "groundY": 470,
+  "defaultCharacterScale": 0.85
+}

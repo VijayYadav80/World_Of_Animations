@@ -54,39 +54,9 @@
   ],
   "backgrounds": [
     {
-      "id": "village-street-01",
-      "displayName": "Indian village street",
-      "meta": "backgrounds/village-street-01/background.json"
-    },
-    {
-      "id": "my-forest",
-      "displayName": "Forest path",
-      "meta": "backgrounds/my-forest/background.json"
-    },
-    {
-      "id": "jaipur-market",
-      "displayName": "Jaipur bazaar",
-      "meta": "backgrounds/jaipur-market/background.json"
-    },
-    {
-      "id": "school-yard",
-      "displayName": "Indian school courtyard",
-      "meta": "backgrounds/school-yard/background.json"
-    },
-    {
-      "id": "railway-platform",
-      "displayName": "Small-town railway platform",
-      "meta": "backgrounds/railway-platform/background.json"
-    },
-    {
-      "id": "farm-morning",
-      "displayName": "Indian farm at sunrise",
-      "meta": "backgrounds/farm-morning/background.json"
-    },
-    {
-      "id": "diwali-lane",
-      "displayName": "Diwali decorated lane",
-      "meta": "backgrounds/diwali-lane/background.json"
+      "id": "city-road",
+      "displayName": "City Road",
+      "meta": "backgrounds/city-road/background.json"
     },
     {
       "id": "city-rooftops",
@@ -94,14 +64,94 @@
       "meta": "backgrounds/city-rooftops/background.json"
     },
     {
-      "id": "river-ghat",
-      "displayName": "River ghat",
-      "meta": "backgrounds/river-ghat/background.json"
+      "id": "desi-market",
+      "displayName": "Desi Market",
+      "meta": "backgrounds/desi-market/background.json"
+    },
+    {
+      "id": "diwali-lane",
+      "displayName": "Diwali decorated lane",
+      "meta": "backgrounds/diwali-lane/background.json"
+    },
+    {
+      "id": "farm-morning",
+      "displayName": "Indian farm at sunrise",
+      "meta": "backgrounds/farm-morning/background.json"
+    },
+    {
+      "id": "green-farm",
+      "displayName": "Green Farm",
+      "meta": "backgrounds/green-farm/background.json"
+    },
+    {
+      "id": "indian-dhaba",
+      "displayName": "Indian Dhaba",
+      "meta": "backgrounds/indian-dhaba/background.json"
+    },
+    {
+      "id": "indian-village-street",
+      "displayName": "Indian Village Street",
+      "meta": "backgrounds/indian-village-street/background.json"
+    },
+    {
+      "id": "jaipur-market",
+      "displayName": "Jaipur bazaar",
+      "meta": "backgrounds/jaipur-market/background.json"
     },
     {
       "id": "monsoon-road",
       "displayName": "Monsoon village road",
       "meta": "backgrounds/monsoon-road/background.json"
+    },
+    {
+      "id": "my-forest",
+      "displayName": "Forest path",
+      "meta": "backgrounds/my-forest/background.json"
+    },
+    {
+      "id": "panchayat",
+      "displayName": "Panchayat",
+      "meta": "backgrounds/panchayat/background.json"
+    },
+    {
+      "id": "railway-platform",
+      "displayName": "Small-town railway platform",
+      "meta": "backgrounds/railway-platform/background.json"
+    },
+    {
+      "id": "railway-station",
+      "displayName": "Railway Station",
+      "meta": "backgrounds/railway-station/background.json"
+    },
+    {
+      "id": "river-ghat",
+      "displayName": "River ghat",
+      "meta": "backgrounds/river-ghat/background.json"
+    },
+    {
+      "id": "school-yard",
+      "displayName": "Indian school courtyard",
+      "meta": "backgrounds/school-yard/background.json"
+    },
+    {
+      "id": "simple-river-ghat",
+      "displayName": "River Ghat (Simple)",
+      "meta": "backgrounds/simple-river-ghat/background.json"
+    },
+    {
+      "id": "village-road",
+      "displayName": "Village Road",
+      "meta": "backgrounds/village-road/background.json"
+    },
+    {
+      "id": "village-school",
+      "displayName": "Village School",
+      "meta": "backgrounds/village-school/background.json"
+    },
+    {
+      "id": "village-street-01",
+      "displayName": "Indian village street",
+      "meta": "backgrounds/village-street-01/background.json"
     }
   ]
 }
