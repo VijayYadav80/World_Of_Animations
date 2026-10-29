@@ -1,8 +1,11 @@
 import {
   AfterViewInit, ChangeDetectionStrategy, Component, ElementRef, NgZone, OnDestroy, ViewChild, effect, inject, signal,
 } from '@angular/core';
-import { Application, Assets, Container, FederatedPointerEvent, Graphics, Rectangle, Sprite, Texture } from 'pixi.js';
+import { Application, Assets, Container, FederatedPointerEvent, Graphics, Rectangle, Sprite, Text, Texture } from 'pixi.js';
 import { evaluatePose, evaluatePosition } from '../core/animation/animation-engine';
+import { activeDialogue, mouthState } from '../core/dialogue/lipsync';
+import { DialogueClip } from '../core/models/dialogue.models';
+import { AudioService } from '../core/services/audio.service';
 import { AssetManifestService } from '../core/services/asset-manifest.service';
 import { PlaybackService } from '../core/services/playback.service';
 import { CharacterInstance, SceneStateService, STAGE_HEIGHT, STAGE_WIDTH } from '../core/services/scene-state.service';
@@ -12,7 +15,20 @@ interface CharacterView {
   holder: Container;      // positioned/scaled/rotated/flipped by scene state
   rig: RigCharacter;
   selection: Graphics;
+  /** Speech bubble (lives in bubbleLayer so it is never flipped or scaled with the character). */
+  bubble: Container;
+  bubbleBg: Graphics;
+  bubbleLabel: Text;
+  bubbleText: string;
+  bubbleTail: number;
 }
+
+/** Bone whose variants ('open' / 'closed') are driven by lip-sync. */
+const MOUTH_BONE = 'mouth';
+const BUBBLE_PAD = 18;
+const BUBBLE_TAIL = 16;
+const BUBBLE_FONT = "'Noto Sans Devanagari', 'Nirmala UI', 'Mangal', 'Segoe UI', system-ui, sans-serif";
+const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v));
 
 /** 16:9 PixiJS stage. Renders the scene state; user drags write back into the scene state. */
 @Component({
@@ -45,6 +61,7 @@ export class StageComponent implements AfterViewInit, OnDestroy {
   private readonly assets = inject(AssetManifestService);
   private readonly zone = inject(NgZone);
   private readonly playback = inject(PlaybackService);
+  private readonly audio = inject(AudioService);
 
   readonly loading = signal(true);
   readonly error = signal<string | null>(null);
@@ -53,6 +70,7 @@ export class StageComponent implements AfterViewInit, OnDestroy {
   private world = new Container();
   private backgroundLayer = new Container();
   private characterLayer = new Container();
+  private bubbleLayer = new Container();
   private readonly views = new Map<string, CharacterView>();
   private readonly creating = new Set<string>();
   private currentBackgroundId: string | null = null;
@@ -103,7 +121,8 @@ export class StageComponent implements AfterViewInit, OnDestroy {
       // Every frame: pose + position come from the deterministic engine at the current playhead time.
       app.ticker.add(() => this.tick());
       this.characterLayer.sortableChildren = true;
-      this.world.addChild(this.backgroundLayer, this.characterLayer);
+      this.bubbleLayer.eventMode = 'none';
+      this.world.addChild(this.backgroundLayer, this.characterLayer, this.bubbleLayer);
       app.stage.addChild(this.world);
 
       // First run: put the default background + first character on the stage.
@@ -180,18 +199,48 @@ export class StageComponent implements AfterViewInit, OnDestroy {
   private tick(): void {
     const selectedId = this.scene.selectedId();
     const t = this.playback.time();
-    for (const inst of this.scene.state().characters) {
+    const { characters, dialogues, audioClips } = this.scene.state();
+    for (const inst of characters) {
       const view = this.views.get(inst.instanceId);
       if (!view) continue;
-      view.rig.applyPose(evaluatePose(view.rig.def, inst.timeline, t));
-      this.applyInstance(view, inst, inst.instanceId === selectedId, evaluatePosition(inst.timeline, t));
+      const pose = evaluatePose(view.rig.def, inst.timeline, t);
+      // Lip-sync: while the character speaks, the mouth follows the audio (or the text) instead of the pose.
+      const mouth = mouthState(inst.instanceId, t, dialogues, audioClips, id => this.audio.mouthTrack(id));
+      if (mouth) pose.variants = { ...(pose.variants ?? {}), [MOUTH_BONE]: mouth };
+      view.rig.applyPose(pose);
+      const pos = evaluatePosition(inst.timeline, t);
+      this.applyInstance(view, inst, inst.instanceId === selectedId, pos);
+      this.updateBubble(view, inst, pos, activeDialogue(dialogues, inst.instanceId, t));
     }
+  }
+
+  /** Shows the speech bubble above the character's head while a dialogue line is active. */
+  private updateBubble(view: CharacterView, inst: CharacterInstance, pos: { x: number; y: number } | undefined, line?: DialogueClip): void {
+    const text = line?.text.trim();
+    if (!text) { view.bubble.visible = false; return; }
+    const p = pos ?? { x: inst.x, y: inst.y };
+    if (view.bubbleText !== text) { view.bubbleLabel.text = text; view.bubbleText = text; view.bubbleTail = -1; }
+    const w = view.bubbleLabel.width + BUBBLE_PAD * 2;
+    const h = view.bubbleLabel.height + BUBBLE_PAD * 2;
+    const left = clamp(p.x - w / 2, 10, Math.max(10, STAGE_WIDTH - w - 10));
+    const tail = Math.round(clamp(p.x - left, 24, Math.max(24, w - 24)) / 2) * 2;
+    if (tail !== view.bubbleTail) {
+      view.bubbleTail = tail;
+      view.bubbleBg.clear();
+      view.bubbleBg.roundRect(0, 0, w, h, 18).fill(0xffffff).stroke({ width: 3, color: 0x20232b });
+      view.bubbleBg.poly([tail - 11, h - 1.5, tail + 11, h - 1.5, tail, h + BUBBLE_TAIL]).fill(0xffffff);
+      view.bubbleBg.moveTo(tail - 11, h).lineTo(tail, h + BUBBLE_TAIL).lineTo(tail + 11, h).stroke({ width: 3, color: 0x20232b });
+    }
+    view.bubbleLabel.position.set(BUBBLE_PAD, BUBBLE_PAD);
+    const top = p.y + view.rig.def.bounds.y * inst.scale - 6 - h - BUBBLE_TAIL;
+    view.bubble.position.set(left, Math.max(8, top));
+    view.bubble.visible = true;
   }
 
   private syncCharacters(instances: CharacterInstance[], selectedId: string | null): void {
     // remove deleted
     for (const [id, view] of this.views) {
-      if (!instances.some(i => i.instanceId === id)) { view.rig.destroy(); view.holder.destroy({ children: true }); this.views.delete(id); }
+      if (!instances.some(i => i.instanceId === id)) { view.rig.destroy(); view.holder.destroy({ children: true }); view.bubble.destroy({ children: true }); this.views.delete(id); }
     }
     for (const inst of instances) {
       const view = this.views.get(inst.instanceId);
@@ -228,7 +277,18 @@ export class StageComponent implements AfterViewInit, OnDestroy {
       });
       this.characterLayer.addChild(holder);
 
-      const view: CharacterView = { holder, rig, selection };
+      const bubble = new Container();
+      const bubbleBg = new Graphics();
+      const bubbleLabel = new Text({
+        text: '',
+        style: { fontFamily: BUBBLE_FONT, fontSize: 28, fill: 0x1a1c22, align: 'center', wordWrap: true, wordWrapWidth: 340, lineHeight: 40 },
+      });
+      bubble.addChild(bubbleBg, bubbleLabel);
+      bubble.eventMode = 'none';
+      bubble.visible = false;
+      this.bubbleLayer.addChild(bubble);
+
+      const view: CharacterView = { holder, rig, selection, bubble, bubbleBg, bubbleLabel, bubbleText: '', bubbleTail: -1 };
       this.views.set(inst.instanceId, view);
       const latest = this.scene.state().characters.find(c => c.instanceId === inst.instanceId) ?? inst;
       this.applyInstance(view, latest, this.scene.selectedId() === inst.instanceId);

@@ -1,28 +1,110 @@
+<input id="tl-audio-input" type="file" accept="audio/*,.wav,.mp3,.ogg,.m4a" hidden (change)="onAudioPicked($event)" />
+
 <div class="head">
-  <button type="button" disabled title="Phase 3: playback">⏮</button>
-  <button type="button" disabled title="Phase 3: playback">▶</button>
-  <button type="button" disabled title="Phase 3: playback">⏭</button>
-  <span class="time">{{ format(playhead()) }} / {{ format(sceneDuration()) }}</span>
-  <span class="hint">Time unit: milliseconds. Playback and seeking arrive in Phase 3.</span>
+  <button type="button" (click)="playback.restart()" title="Go to start" aria-label="Go to start">⏮</button>
+  <button type="button" class="play" (click)="playback.toggle()"
+          [title]="playback.playing() ? 'Pause' : 'Play'" [attr.aria-label]="playback.playing() ? 'Pause' : 'Play'">
+    {{ playback.playing() ? '⏸' : '▶' }}
+  </button>
+  <button type="button" (click)="playback.seek(playback.duration())" title="Go to end" aria-label="Go to end">⏭</button>
+  <span class="time">{{ format(playback.time()) }} / {{ format(playback.duration()) }}</span>
+  <select class="rate" aria-label="Playback speed" [value]="playback.rate()" (change)="setRate($event)">
+    <option value="0.5">0.5×</option>
+    <option value="1">1×</option>
+    <option value="1.5">1.5×</option>
+    <option value="2">2×</option>
+  </select>
+
+  <span class="sep"></span>
+  <button type="button" (click)="addDialogue()" [disabled]="!hasCharacters()" title="Add a speech bubble at the playhead">+ Dialogue</button>
+  <button type="button" (click)="pickAudio()" title="Import a voice recording at the playhead">Import audio</button>
+
+  <span class="grow"></span>
+  @if (message(); as m) { <span class="msg" role="alert">{{ m }}</span> }
+  <button type="button" (click)="zoomBy(1 / 1.25)" aria-label="Zoom out">−</button>
+  <input class="zoom" type="range" min="20" max="300" step="5" [value]="pxPerSec()" (input)="setZoom($event)" aria-label="Timeline zoom" />
+  <button type="button" (click)="zoomBy(1.25)" aria-label="Zoom in">+</button>
 </div>
 
-<div class="grid">
+@if (selectedDialogue(); as d) {
+  <div class="strip">
+    <label>Character
+      <select (change)="onDialogueChar(d.id, $event)">
+        @for (c of characters(); track c.instanceId) {
+          <option [value]="c.instanceId" [selected]="c.instanceId === d.characterId">{{ c.characterId }}</option>
+        }
+      </select>
+    </label>
+    <label class="text">Text (Hindi)
+      <input type="text" lang="hi" [value]="d.text" (input)="onDialogueText(d.id, $event)" placeholder="यहाँ संवाद लिखें" />
+    </label>
+    <label>Start (s) <input class="num" type="number" min="0" step="0.1" [value]="sec(d.start)" (change)="onDialogueStart(d.id, $event)" /></label>
+    <label>Length (s) <input class="num" type="number" min="0.2" step="0.1" [value]="sec(d.duration)" [disabled]="!!d.audioId" (change)="onDialogueLength(d.id, $event)" /></label>
+    <button type="button" (click)="fitText(d.id, d.text)" [disabled]="!!d.audioId" title="Set the length from the text">Fit text</button>
+    <button type="button" (click)="attach(d.id)">{{ d.audioId ? 'Replace audio' : 'Attach audio' }}</button>
+    <button type="button" class="danger" (click)="removeSelected()">Delete</button>
+  </div>
+}
+
+@if (selectedAudio(); as a) {
+  <div class="strip">
+    <span class="name" [title]="a.name">♪ {{ a.name }}</span>
+    <label>Lip-sync character
+      <select (change)="onAudioChar(a.id, $event)">
+        <option value="" [selected]="!a.characterId">(none)</option>
+        @for (c of characters(); track c.instanceId) {
+          <option [value]="c.instanceId" [selected]="c.instanceId === a.characterId">{{ c.characterId }}</option>
+        }
+      </select>
+    </label>
+    <label>Start (s) <input class="num" type="number" min="0" step="0.1" [value]="sec(a.start)" (change)="onAudioStart(a.id, $event)" /></label>
+    <span class="dim">{{ sec(a.duration) }} s</span>
+    <button type="button" class="danger" (click)="removeSelected()">Delete</button>
+  </div>
+}
+
+<div class="body">
   <div class="labels">
     <div class="label ruler-label">Time</div>
-    @for (track of tracks; track track.id) {
-      <div class="label">{{ track.label }}</div>
+    @for (row of rows(); track row.key) {
+      <div class="label" [class.sel]="row.characterId && row.characterId === scene.selectedId()" [title]="row.label">{{ row.label }}</div>
     }
   </div>
 
-  <div class="lanes">
-    <div class="ruler">
-      @for (tick of ticks(); track tick.left) {
-        <span class="tick" [style.left.%]="tick.left">{{ tick.label }}</span>
+  <div class="scroll" #scroll>
+    <div class="inner" #inner [style.width.px]="contentWidth()"
+         (pointerdown)="onScrubDown($event)" (pointermove)="onScrubMove($event)" (pointerup)="onScrubUp()" (pointercancel)="onScrubUp()">
+      <div class="ruler">
+        @for (tick of ticks(); track tick.x) {
+          <span class="tick" [class.major]="tick.major" [style.left.px]="tick.x">{{ tick.label }}</span>
+        }
+      </div>
+
+      @for (row of rows(); track row.key) {
+        <div class="lane" [class.audio]="row.kind === 'audio'">
+          @if (row.blocks.length === 0 && row.kind !== 'action') {
+            <span class="empty">{{ row.kind === 'audio' ? 'Import audio to see it here' : 'No dialogue yet. Use + Dialogue' }}</span>
+          }
+          @for (b of row.blocks; track b.id) {
+            <div class="block" [class.sel]="b.selected" [class.action]="b.kind === 'action'" [class.linked]="b.linked"
+                 [style.left.px]="b.left" [style.width.px]="b.width" [style.--c]="b.color" [title]="b.title"
+                 (pointerdown)="onBlockDown($event, row, b)" (pointermove)="onBlockMove($event)"
+                 (pointerup)="onBlockUp()" (pointercancel)="onBlockUp()">
+              @if (b.wave) {
+                <svg class="wave" viewBox="0 0 240 20" preserveAspectRatio="none" aria-hidden="true"><path [attr.d]="b.wave" /></svg>
+              }
+              <span class="txt" [attr.lang]="b.kind === 'dialogue' ? 'hi' : null">{{ b.label }}</span>
+              @if (b.kind === 'dialogue' && !b.linked) {
+                <span class="handle" title="Drag to change length"
+                      (pointerdown)="onBlockDown($event, row, b, 'resize')" (pointermove)="onBlockMove($event)"
+                      (pointerup)="onBlockUp()" (pointercancel)="onBlockUp()"></span>
+              }
+            </div>
+          }
+        </div>
       }
+
+      <div class="playhead" [style.left.px]="playheadX()"></div>
     </div>
-    @for (track of tracks; track track.id) {
-      <div class="lane" [title]="track.note"><span class="empty">{{ track.note }}</span></div>
-    }
-    <div class="playhead" [style.left.%]="playheadPercent()"></div>
   </div>
 </div>
