@@ -8,7 +8,9 @@ import { DialogueClip } from '../core/models/dialogue.models';
 import { AudioService } from '../core/services/audio.service';
 import { AssetManifestService } from '../core/services/asset-manifest.service';
 import { PlaybackService } from '../core/services/playback.service';
-import { CharacterInstance, SceneStateService, STAGE_HEIGHT, STAGE_WIDTH } from '../core/services/scene-state.service';
+import {
+  CharacterInstance, MAX_PROP_SCALE, MIN_PROP_SCALE, PropInstance, SceneStateService, STAGE_HEIGHT, STAGE_WIDTH, prettyPropName,
+} from '../core/services/scene-state.service';
 import { RigCharacter } from './rig/rig-character';
 
 interface CharacterView {
@@ -24,6 +26,21 @@ interface CharacterView {
   bubbleText: string;
   bubbleTail: number;
 }
+
+/** A prop on the stage: one picture, anchored at a point of the picture (bottom centre by default). */
+interface PropView {
+  holder: Container;
+  selection: Graphics;
+  /** Round grip at the top-right corner of the picture: drag it to make the prop bigger or smaller. */
+  handle: Graphics;
+  /** Picture box in the holder's local space (anchor point = 0,0). */
+  bx: number; by: number; w: number; h: number;
+  /** Scale the selection outline was last drawn for (its line width is counter-scaled). */
+  drawnScale: number;
+}
+
+/** Props with layer 'back' / 'front' are pushed behind / in front of every character. */
+const PROP_LAYER_OFFSET = 10000;
 
 /** Bone whose variants ('open' / 'closed') are driven by lip-sync. */
 const MOUTH_BONE = 'mouth';
@@ -45,6 +62,7 @@ const HANDLE_RADIUS = 11;
       <div #host class="stage-host"></div>
       @if (error(); as e) { <div class="stage-msg stage-error" role="alert">{{ e }}</div> }
       @else if (loading()) { <div class="stage-msg">Loading stage…</div> }
+      @if (propNotice(); as n) { <div class="stage-note" role="status" (click)="propNotice.set(null)" title="Click to hide">{{ n }}</div> }
     </div>
   `,
   styles: [`
@@ -56,6 +74,7 @@ const HANDLE_RADIUS = 11;
     .stage-host { position: absolute; inset: 0; }
     .stage-msg { position: absolute; inset: 0; display: grid; place-items: center; color: #c9ccd3; font: 14px system-ui, sans-serif; text-align: center; padding: 16px; }
     .stage-error { color: #ff9b8f; }
+    .stage-note { position: absolute; left: 10px; right: 10px; bottom: 10px; padding: 7px 12px; border-radius: 10px; background: rgba(20, 22, 27, .92); color: #ffb4a8; font: 12.5px system-ui, sans-serif; cursor: pointer; box-shadow: 0 0 0 1px rgba(255, 255, 255, .1); }
   `],
 })
 export class StageComponent implements AfterViewInit, OnDestroy {
@@ -72,6 +91,8 @@ export class StageComponent implements AfterViewInit, OnDestroy {
 
   readonly loading = signal(true);
   readonly error = signal<string | null>(null);
+  /** Small, non-blocking message (a prop picture that could not be loaded must not hide the whole stage). */
+  readonly propNotice = signal<string | null>(null);
 
   private app?: Application;
   private world = new Container();
@@ -80,6 +101,12 @@ export class StageComponent implements AfterViewInit, OnDestroy {
   private bubbleLayer = new Container();
   private readonly views = new Map<string, CharacterView>();
   private readonly creating = new Set<string>();
+  private readonly propViews = new Map<string, PropView>();
+  private readonly creatingProps = new Set<string>();
+  /** Prop ids whose picture failed to load: not retried on every edit. */
+  private readonly failedProps = new Set<string>();
+  private propDragging?: { id: string; dx: number; dy: number };
+  private propResizing?: { id: string; startDist: number; startScale: number };
   private currentBackgroundId: string | null = null;
   private dragging?: { id: string; dx: number; dy: number };
   /** Active drag of the size handle: scale = startScale * (pointer distance from the feet / startDist). */
@@ -95,6 +122,13 @@ export class StageComponent implements AfterViewInit, OnDestroy {
       const state = this.scene.state();
       const selectedId = this.scene.selectedId();
       this.syncCharacters(state.characters, selectedId);
+    });
+    // Props: created / updated / removed whenever the list or the selection changes.
+    effect(() => {
+      if (!this.ready()) return;
+      const props = this.scene.state().props;
+      const selectedPropId = this.scene.selectedPropId();
+      this.syncProps(props, selectedPropId);
     });
     // The background follows the playhead: it changes only when playback/scrubbing enters another scene.
     effect(() => {
@@ -164,6 +198,7 @@ export class StageComponent implements AfterViewInit, OnDestroy {
     this.resizeObserver?.disconnect();
     this.views.forEach(v => v.rig.destroy());
     this.views.clear();
+    this.propViews.clear();
     this.app?.destroy(true, { children: true });
     this.app = undefined;
   }
@@ -369,9 +404,124 @@ export class StageComponent implements AfterViewInit, OnDestroy {
   private endDrag(): void {
     this.dragging = undefined;
     this.resizing = undefined;
+    this.propDragging = undefined;
+    this.propResizing = undefined;
+  }
+
+  // ------------------------------------------------------------ props
+
+  private syncProps(instances: PropInstance[], selectedId: string | null): void {
+    for (const [id, view] of this.propViews) {
+      if (!instances.some(i => i.instanceId === id)) { view.holder.destroy({ children: true }); this.propViews.delete(id); }
+    }
+    for (const inst of instances) {
+      const view = this.propViews.get(inst.instanceId);
+      if (view) this.applyProp(view, inst, inst.instanceId === selectedId);
+      else if (!this.creatingProps.has(inst.instanceId) && !this.failedProps.has(inst.propId)) void this.createPropView(inst);
+    }
+  }
+
+  private async createPropView(inst: PropInstance): Promise<void> {
+    this.creatingProps.add(inst.instanceId);
+    try {
+      const { def, baseUrl } = await this.assets.getProp(inst.propId);
+      const tex = await Assets.load<Texture>({ src: baseUrl + def.image });
+      // The prop may have been deleted (or the stage closed) while its picture was loading.
+      const latest = this.scene.state().props.find(p => p.instanceId === inst.instanceId);
+      if (this.destroyed || !latest) return;
+
+      const ax = clamp(def.anchorX ?? 0.5, 0, 1);
+      const ay = clamp(def.anchorY ?? 1, 0, 1);
+      const w = tex.width, h = tex.height;
+      const bx = -ax * w, by = -ay * h;
+
+      const sprite = new Sprite(tex);
+      sprite.anchor.set(ax, ay);
+      sprite.eventMode = 'none';
+      const selection = new Graphics();
+      selection.eventMode = 'none';
+      selection.visible = false;
+      const handle = new Graphics().circle(0, 0, HANDLE_RADIUS).fill(0xffffff).stroke({ width: 3, color: 0x4da3ff });
+      handle.eventMode = 'static';
+      handle.cursor = 'nwse-resize';
+      handle.hitArea = new Circle(0, 0, HANDLE_RADIUS + 8);
+      handle.visible = false;
+      handle.on('pointerdown', (e: FederatedPointerEvent) => {
+        e.stopPropagation();
+        const cur = this.scene.state().props.find(p => p.instanceId === inst.instanceId);
+        if (!cur) return;
+        const p = e.getLocalPosition(this.world);
+        this.scene.selectProp(inst.instanceId);
+        this.propResizing = { id: inst.instanceId, startDist: Math.max(20, Math.hypot(p.x - cur.x, p.y - cur.y)), startScale: cur.scale };
+      });
+
+      const holder = new Container();
+      holder.addChild(sprite, selection, handle);
+      holder.eventMode = 'static';
+      holder.cursor = 'move';
+      holder.hitArea = new Rectangle(bx, by, w, h);
+      holder.on('pointerdown', (e: FederatedPointerEvent) => {
+        e.stopPropagation();
+        const cur = this.scene.state().props.find(p => p.instanceId === inst.instanceId);
+        if (!cur) return;
+        const p = e.getLocalPosition(this.world);
+        this.scene.selectProp(inst.instanceId);
+        this.propDragging = { id: inst.instanceId, dx: cur.x - p.x, dy: cur.y - p.y };
+      });
+      // Props share the character layer, so "lower on the stage = in front" works between props and characters too.
+      this.characterLayer.addChild(holder);
+
+      const view: PropView = { holder, selection, handle, bx, by, w, h, drawnScale: -1 };
+      this.propViews.set(inst.instanceId, view);
+      const current = this.scene.state().props.find(p => p.instanceId === inst.instanceId) ?? latest;
+      this.applyProp(view, current, this.scene.selectedPropId() === inst.instanceId);
+    } catch (e) {
+      console.warn('Prop could not be loaded', inst.propId, e);
+      this.failedProps.add(inst.propId);
+      this.propNotice.set(`The prop "${prettyPropName(inst.propId)}" could not be loaded: ${e instanceof Error ? e.message : String(e)}`);
+    } finally {
+      this.creatingProps.delete(inst.instanceId);
+    }
+  }
+
+  private applyProp(view: PropView, inst: PropInstance, selected: boolean): void {
+    const h = view.holder;
+    h.position.set(inst.x, inst.y);
+    h.scale.set(inst.flipX ? -inst.scale : inst.scale, inst.scale);
+    h.rotation = ((inst.flipX ? -inst.rotation : inst.rotation) * Math.PI) / 180;
+    h.zIndex = inst.y + (inst.layer === 'back' ? -PROP_LAYER_OFFSET : inst.layer === 'front' ? PROP_LAYER_OFFSET : 0);
+    view.selection.visible = selected;
+    view.handle.visible = selected;
+    if (!selected) return;
+    if (view.drawnScale !== inst.scale) {
+      view.drawnScale = inst.scale;
+      view.selection.clear();
+      view.selection.rect(view.bx, view.by, view.w, view.h).stroke({ width: 2 / Math.max(inst.scale, 0.05), color: 0x4da3ff, alpha: 0.9 });
+    }
+    // Handle on the top-right corner as seen on screen (mirrored when flipped), counter-scaled to keep its size.
+    view.handle.position.set(inst.flipX ? view.bx : view.bx + view.w, view.by);
+    view.handle.scale.set(1 / Math.max(inst.scale, 0.01));
   }
 
   private onDragMove(e: FederatedPointerEvent): void {
+    if (this.propResizing) {
+      const r = this.propResizing;
+      const cur = this.scene.state().props.find(p => p.instanceId === r.id);
+      if (!cur) return;
+      const p = e.getLocalPosition(this.world);
+      const dist = Math.hypot(p.x - cur.x, p.y - cur.y);
+      this.scene.updateProp(r.id, { scale: clamp(r.startScale * (dist / r.startDist), MIN_PROP_SCALE, MAX_PROP_SCALE) });
+      return;
+    }
+    if (this.propDragging) {
+      const d = this.propDragging;
+      const p = e.getLocalPosition(this.world);
+      this.scene.updateProp(d.id, {
+        x: Math.round(clamp(p.x + d.dx, 0, STAGE_WIDTH)),
+        y: Math.round(clamp(p.y + d.dy, 0, STAGE_HEIGHT)),
+      });
+      return;
+    }
     if (this.resizing) {
       const r = this.resizing;
       const cur = this.scene.state().characters.find(c => c.instanceId === r.id);

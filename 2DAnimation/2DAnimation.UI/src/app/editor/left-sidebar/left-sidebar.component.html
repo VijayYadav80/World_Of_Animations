@@ -103,10 +103,52 @@
     }
 
     @case ('props') {
-      <div class="empty-state">
-        <span class="badge"><svg viewBox="0 0 24 24" class="i"><path d="M21 8 12 3 3 8v8l9 5 9-5z"/><path d="M3 8l9 5 9-5M12 13v8"/></svg></span>
-        <strong>Props are coming later</strong>
-        <span>Chairs, pots and wells will use the same asset manifest.</span>
+      <button type="button" class="primary wide" (click)="pickProp()" [disabled]="busy()">+ Add prop image</button>
+      <input #propInput type="file" hidden multiple accept="image/png,image/jpeg,image/webp,image/svg+xml" (change)="onPropPicked($event)" />
+      <p class="hint">A PNG with a transparent background looks best. Imported props are saved in this browser only. Click + Add to place a prop on the stage, then drag it or use the white dot to resize.</p>
+      @if (propMessage()) { <p class="hint note pre">{{ propMessage() }}</p> }
+
+      <h3 class="sub">Library <span class="count">{{ propItems().length }}</span></h3>
+      <div class="cards">
+        @for (p of propItems(); track p.id) {
+          <div class="card">
+            <div class="pv prop">
+              <img [src]="p.thumb" [alt]="p.name" loading="lazy" />
+              @if (p.mine) { <span class="mine">Mine</span> }
+            </div>
+            <strong class="clip" [title]="p.name">{{ p.name }}</strong>
+            @if (propUses(p.id) > 0) { <small class="uses">On stage ×{{ propUses(p.id) }}</small> }
+            <div class="card-actions">
+              <button type="button" class="primary grow" (click)="addProp(p.id)" title="Put this prop on the stage">+ Add</button>
+              @if (p.mine) {
+                <button type="button" class="ghost icon danger" (click)="removePropAsset(p.id)" title="Remove this prop from the library" aria-label="Remove this prop from the library">
+                  <svg viewBox="0 0 24 24" class="i"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/></svg>
+                </button>
+              }
+            </div>
+          </div>
+        } @empty {
+          <p class="hint">No props found in assets/manifest.json. Add a "props" list there, or import a picture above.</p>
+        }
+      </div>
+
+      <h3 class="sub">On the stage <span class="count">{{ scene.state().props.length }}</span></h3>
+      <div class="list">
+        @for (p of scene.state().props; track p.instanceId) {
+          <div class="row" [class.on]="scene.selectedPropId() === p.instanceId">
+            <button type="button" class="pick grow" (click)="scene.selectProp(p.instanceId)">
+              <span class="avatar sm pvs">
+                @if (propThumb(p.propId); as url) { <img [src]="url" alt="" /> } @else { {{ initial(propLabel(p.instanceId)) }} }
+              </span>
+              <span class="grow"><strong class="clip">{{ propLabel(p.instanceId) }}</strong><small>{{ (p.scale * 100).toFixed(0) }}%</small></span>
+            </button>
+            <button type="button" class="ghost icon danger" (click)="scene.removeProp(p.instanceId)" title="Remove from stage" aria-label="Remove from stage">
+              <svg viewBox="0 0 24 24" class="i"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/></svg>
+            </button>
+          </div>
+        } @empty {
+          <p class="hint">No props on the stage yet. Press + Add on a prop above.</p>
+        }
       </div>
     }
 

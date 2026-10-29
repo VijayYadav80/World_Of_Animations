@@ -11,6 +11,15 @@ export interface UserBackground {
   height: number;
 }
 
+/** A prop picture the user imported (stored as a data URL, like backgrounds). */
+export interface UserProp {
+  id: string;
+  displayName: string;
+  dataUrl: string;
+  width: number;
+  height: number;
+}
+
 /** A character the user imported. Its rig.json is rewritten so every part is an embedded data URL. */
 export interface UserCharacter {
   id: string;
@@ -20,10 +29,12 @@ export interface UserCharacter {
 
 export const USER_BACKGROUND_PREFIX = 'user-bg-';
 export const USER_CHARACTER_PREFIX = 'user-char-';
+export const USER_PROP_PREFIX = 'user-prop-';
 
 const DB_NAME = 'world-of-animations-user-assets';
 const BG_STORE = 'backgrounds';
 const CHAR_STORE = 'characters';
+const PROP_STORE = 'props';
 const MAX_IMAGE_BYTES = 15 * 1024 * 1024;
 const MAX_CHARACTER_BYTES = 40 * 1024 * 1024;
 const IMAGE_TYPES = ['image/png', 'image/jpeg', 'image/webp', 'image/svg+xml'];
@@ -37,6 +48,7 @@ const IMAGE_TYPES = ['image/png', 'image/jpeg', 'image/webp', 'image/svg+xml'];
 export class UserAssetsService {
   readonly backgrounds = signal<UserBackground[]>([]);
   readonly characters = signal<UserCharacter[]>([]);
+  readonly props = signal<UserProp[]>([]);
   /** Resolves once the stored assets have been read. Await it before looking up a user asset by id. */
   readonly ready: Promise<void>;
 
@@ -48,6 +60,7 @@ export class UserAssetsService {
 
   isUserBackground(id: string): boolean { return id.startsWith(USER_BACKGROUND_PREFIX); }
   isUserCharacter(id: string): boolean { return id.startsWith(USER_CHARACTER_PREFIX); }
+  isUserProp(id: string): boolean { return id.startsWith(USER_PROP_PREFIX); }
 
   // ------------------------------------------------------------ backgrounds
 
@@ -69,6 +82,28 @@ export class UserAssetsService {
   async removeBackground(id: string): Promise<void> {
     await this.delete(BG_STORE, id);
     this.backgrounds.update(list => list.filter(b => b.id !== id));
+  }
+
+  // ------------------------------------------------------------ props
+
+  async addProp(file: File): Promise<UserProp> {
+    if (!IMAGE_TYPES.includes(file.type)) throw new Error('Please choose a PNG, JPG, WebP or SVG image.');
+    if (file.size > MAX_IMAGE_BYTES) throw new Error('This image is larger than 15 MB. Please use a smaller one.');
+    const dataUrl = await readAsDataUrl(file);
+    const { width, height } = await measureImage(dataUrl);
+    const prop: UserProp = {
+      id: USER_PROP_PREFIX + randomId(),
+      displayName: baseName(file.name) || 'My prop',
+      dataUrl, width, height,
+    };
+    await this.put(PROP_STORE, prop);
+    this.props.update(list => [...list, prop]);
+    return prop;
+  }
+
+  async removeProp(id: string): Promise<void> {
+    await this.delete(PROP_STORE, id);
+    this.props.update(list => list.filter(p => p.id !== id));
   }
 
   // ------------------------------------------------------------ characters
@@ -137,10 +172,13 @@ export class UserAssetsService {
 
   private open(): Promise<IDBDatabase> {
     this.db ??= new Promise((resolve, reject) => {
-      const req = indexedDB.open(DB_NAME, 1);
+      // Version 2 added the props store. Existing scenes/characters stay as they are.
+      const req = indexedDB.open(DB_NAME, 2);
       req.onupgradeneeded = () => {
-        req.result.createObjectStore(BG_STORE, { keyPath: 'id' });
-        req.result.createObjectStore(CHAR_STORE, { keyPath: 'id' });
+        const db = req.result;
+        for (const store of [BG_STORE, CHAR_STORE, PROP_STORE]) {
+          if (!db.objectStoreNames.contains(store)) db.createObjectStore(store, { keyPath: 'id' });
+        }
       };
       req.onsuccess = () => resolve(req.result);
       req.onerror = () => reject(req.error ?? new Error('IndexedDB is not available'));
@@ -151,6 +189,7 @@ export class UserAssetsService {
   private async loadAll(): Promise<void> {
     this.backgrounds.set(await this.getAll<UserBackground>(BG_STORE));
     this.characters.set(await this.getAll<UserCharacter>(CHAR_STORE));
+    this.props.set(await this.getAll<UserProp>(PROP_STORE));
   }
 
   private async getAll<T>(store: string): Promise<T[]> {

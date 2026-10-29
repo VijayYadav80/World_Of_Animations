@@ -158,7 +158,7 @@ export class ProjectService {
         } catch { missing.push(a.name); }
       }
 
-      const empty = file.scenes.length === 0 && file.characters.length === 0;
+      const empty = file.scenes.length === 0 && file.characters.length === 0 && file.props.length === 0;
       if (empty) {
         this.scene.resetScene();
         await this.addDefaults();
@@ -166,6 +166,7 @@ export class ProjectService {
         this.scene.loadScene({
           scenes: file.scenes,
           characters: file.characters,
+          props: file.props,
           dialogues: file.dialogues,
           audioClips: file.audioClips,
         });
@@ -238,6 +239,7 @@ export class ProjectService {
       schemaVersion: 2,
       scenes: s.scenes,
       characters: s.characters,
+      props: s.props,
       dialogues: s.dialogues,
       audioClips: s.audioClips,
       audioAssets: this.usedAudio(),
@@ -266,6 +268,7 @@ export class ProjectService {
       schemaVersion: 2,
       scenes,
       characters,
+      props: (raw.props ?? []).map(p => ({ ...p, rotation: p.rotation ?? 0, flipX: p.flipX ?? false, layer: p.layer ?? 'auto' })),
       dialogues: raw.dialogues ?? [],
       audioClips: raw.audioClips ?? [],
       audioAssets: raw.audioAssets ?? [],

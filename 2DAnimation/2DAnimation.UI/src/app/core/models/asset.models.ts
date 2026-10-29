@@ -4,6 +4,38 @@ export interface AssetManifest {
   schemaVersion: number;
   characters: { id: string; displayName: string; rig: string }[];
   backgrounds: { id: string; displayName: string; meta: string }[];
+  /**
+   * Props (chairs, pots, wells ...). Optional, so an older manifest without props still loads.
+   * Each entry points to a small JSON file (`meta`, like backgrounds) OR directly to an image (`image`).
+   */
+  props?: PropManifestEntry[];
+}
+
+export interface PropManifestEntry {
+  id: string;
+  displayName?: string;
+  /** Path (inside assets/) of the prop's JSON definition. */
+  meta?: string;
+  /** Path (inside assets/) of the image, when the prop has no JSON file. */
+  image?: string;
+}
+
+/** One prop: a single picture that is placed on the stage. */
+export interface PropDefinition {
+  schemaVersion?: number;
+  id: string;
+  displayName: string;
+  /** Image file, relative to the folder of the JSON file (or a data URL for imported props). */
+  image: string;
+  /** Image size in px. Optional: measured from the picture when missing. */
+  width?: number;
+  height?: number;
+  /** Which point of the picture sits on the prop's stage position, as a fraction of the picture (0..1).
+   *  Default 0.5 / 1 = bottom centre, so a chair or a pot stands on the ground. */
+  anchorX?: number;
+  anchorY?: number;
+  /** Scale used when the prop is added. Missing = fit to a sensible size automatically. */
+  defaultScale?: number;
 }
 
 export interface BackgroundDefinition {

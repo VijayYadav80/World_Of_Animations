@@ -374,7 +374,11 @@ export class TimelinePanelComponent {
     if (ev.key !== 'Delete' && ev.key !== 'Backspace') return;
     const sceneId = this.scene.selectedSceneId();
     const action = this.scene.selectedAction();
-    if (this.scene.selectedClip()) {
+    const propId = this.scene.selectedPropId();
+    if (propId) {
+      ev.preventDefault();
+      this.scene.removeProp(propId);
+    } else if (this.scene.selectedClip()) {
       ev.preventDefault();
       this.scene.removeSelectedClip();
     } else if (sceneId) {

@@ -27,10 +27,32 @@ export interface CharacterInstance {
   timeline: CharacterTimeline;
 }
 
+/** Where a prop is drawn relative to the characters. 'auto' = by height on the stage (lower = in front). */
+export type PropLayer = 'back' | 'auto' | 'front';
+
+/** A prop (chair, pot, well ...) placed on the stage. Props do not animate: they stay for the whole video. */
+export interface PropInstance {
+  instanceId: string;
+  propId: string;
+  /** Position of the prop's anchor point (default: bottom centre of the picture) on the stage. */
+  x: number;
+  y: number;
+  scale: number;
+  /** Degrees. */
+  rotation: number;
+  flipX: boolean;
+  layer: PropLayer;
+}
+
+export const MIN_PROP_SCALE = 0.05;
+export const MAX_PROP_SCALE = 8;
+
 export interface SceneState {
   /** Scenes (backgrounds) that play one after another on the timeline. */
   scenes: SceneSegment[];
   characters: CharacterInstance[];
+  /** Props standing on the stage. */
+  props: PropInstance[];
   /** Speech bubbles (Phase 4). */
   dialogues: DialogueClip[];
   /** Imported voice audio placed on the Audio track (Phase 4). */
@@ -42,6 +64,11 @@ export function prettyCharacterName(characterId: string): string {
   return name.charAt(0).toUpperCase() + name.slice(1);
 }
 
+/** "chair" -> "Chair"; imported "user-prop-big-pot-1a2b3c4d" -> "Big pot". */
+export function prettyPropName(propId: string): string {
+  const name = propId.replace(/^user-prop-/, '').replace(/-[0-9a-f]{8}$/, '').replace(/[-_]+/g, ' ').trim() || propId;
+  return name.charAt(0).toUpperCase() + name.slice(1);
+}
 
 /** The action block currently selected in the timeline. `id` is the TimelineClip id. */
 export interface ActionSelection { instanceId: string; id: string }
@@ -53,7 +80,7 @@ export interface ClipSelection { kind: 'dialogue' | 'audio'; id: string }
 @Injectable({ providedIn: 'root' })
 export class SceneStateService {
   private readonly playback = inject(PlaybackService);
-  readonly state = signal<SceneState>({ scenes: [], characters: [], dialogues: [], audioClips: [] });
+  readonly state = signal<SceneState>({ scenes: [], characters: [], props: [], dialogues: [], audioClips: [] });
   readonly selectedId = signal<string | null>(null);
   /** Background that is on screen at the playhead. Only changes when the playhead crosses into another scene. */
   readonly currentBackgroundId = computed(() => sceneAt(this.state().scenes, this.playback.time())?.backgroundId ?? null);
@@ -64,6 +91,24 @@ export class SceneStateService {
   readonly selected = computed(
     () => this.state().characters.find(c => c.instanceId === this.selectedId()) ?? null
   );
+  /** Prop selected on the stage (null when none). A prop and a character are never selected together. */
+  readonly selectedPropId = signal<string | null>(null);
+  readonly selectedProp = computed(
+    () => this.state().props.find(p => p.instanceId === this.selectedPropId()) ?? null
+  );
+  /** Unique, readable name for every prop ("Chair", "Chair 2", ...). */
+  readonly propLabels = computed(() => {
+    const seen = new Map<string, number>();
+    const out = new Map<string, string>();
+    for (const p of this.state().props) {
+      const n = (seen.get(p.propId) ?? 0) + 1;
+      seen.set(p.propId, n);
+      const base = prettyPropName(p.propId);
+      out.set(p.instanceId, n === 1 ? base : `${base} ${n}`);
+    }
+    return out;
+  });
+  propLabel(instanceId: string): string { return this.propLabels().get(instanceId) ?? '—'; }
   /** Unique, readable name for every character in the scene ("Raju", "Raju 2", ...), so two copies are never confused. */
   readonly labels = computed(() => {
     const seen = new Map<string, number>();
@@ -93,13 +138,14 @@ export class SceneStateService {
   loadScene(scene: SceneState): void {
     this.state.set(scene);
     this.selectedId.set(scene.characters[0]?.instanceId ?? null);
+    this.selectedPropId.set(null);
     this.selectedClip.set(null);
     this.selectedSceneId.set(null);
     this.selectedAction.set(null);
   }
 
   resetScene(): void {
-    this.loadScene({ scenes: [], characters: [], dialogues: [], audioClips: [] });
+    this.loadScene({ scenes: [], characters: [], props: [], dialogues: [], audioClips: [] });
   }
 
   // ------------------------------------------------------------ scenes (backgrounds one after another)
@@ -130,7 +176,7 @@ export class SceneStateService {
 
   selectScene(id: string | null): void {
     this.selectedSceneId.set(id);
-    if (id) { this.selectedClip.set(null); this.selectedAction.set(null); }
+    if (id) { this.selectedClip.set(null); this.selectedAction.set(null); this.selectedPropId.set(null); }
   }
 
   duplicateScene(id: string): void {
@@ -149,7 +195,7 @@ export class SceneStateService {
     const instanceId = `${characterId}-${crypto.randomUUID().slice(0, 8)}`;
     const inst: CharacterInstance = { instanceId, characterId, x, y, scale, rotation: 0, flipX: false, timeline: emptyTimeline() };
     this.state.update(s => ({ ...s, characters: [...s.characters, inst] }));
-    this.selectedId.set(instanceId);
+    this.select(instanceId);
     return instanceId;
   }
 
@@ -222,18 +268,58 @@ export class SceneStateService {
 
   select(instanceId: string | null): void {
     this.selectedId.set(instanceId);
+    this.selectedPropId.set(null); // clicking empty stage (null) also un-selects a prop
+  }
+
+  // ------------------------------------------------------------ props
+
+  addProp(propId: string, x: number, y: number, scale: number): string {
+    const instanceId = `${propId}-${crypto.randomUUID().slice(0, 8)}`;
+    const inst: PropInstance = { instanceId, propId, x, y, scale: clampPropScale(scale), rotation: 0, flipX: false, layer: 'auto' };
+    this.state.update(s => ({ ...s, props: [...s.props, inst] }));
+    this.selectProp(instanceId);
+    return instanceId;
+  }
+
+  updateProp(instanceId: string, patch: Partial<Omit<PropInstance, 'instanceId' | 'propId'>>): void {
+    const next = patch.scale === undefined ? patch : { ...patch, scale: clampPropScale(patch.scale) };
+    this.state.update(s => ({ ...s, props: s.props.map(p => (p.instanceId === instanceId ? { ...p, ...next } : p)) }));
+  }
+
+  removeProp(instanceId: string): void {
+    this.state.update(s => ({ ...s, props: s.props.filter(p => p.instanceId !== instanceId) }));
+    if (this.selectedPropId() === instanceId) this.selectedPropId.set(null);
+  }
+
+  /** Puts a copy of the prop a little to the side of the original and selects it. */
+  duplicateProp(instanceId: string): void {
+    const src = this.state().props.find(p => p.instanceId === instanceId);
+    if (!src) return;
+    const copy = this.addProp(src.propId, Math.min(STAGE_WIDTH, src.x + 40), Math.min(STAGE_HEIGHT, src.y + 20), src.scale);
+    this.updateProp(copy, { rotation: src.rotation, flipX: src.flipX, layer: src.layer });
+  }
+
+  /** Selects a prop (null = none). Only one block of any kind is selected at a time. */
+  selectProp(instanceId: string | null): void {
+    this.selectedPropId.set(instanceId);
+    if (instanceId) {
+      this.selectedId.set(null);
+      this.selectedClip.set(null);
+      this.selectedSceneId.set(null);
+      this.selectedAction.set(null);
+    }
   }
 
   // ------------------------------------------------------------ Phase 4: dialogue + audio
 
   selectClip(sel: ClipSelection | null): void {
     this.selectedClip.set(sel);
-    if (sel) { this.selectedSceneId.set(null); this.selectedAction.set(null); }
+    if (sel) { this.selectedSceneId.set(null); this.selectedAction.set(null); this.selectedPropId.set(null); }
   }
 
   selectAction(sel: ActionSelection | null): void {
     this.selectedAction.set(sel);
-    if (sel) { this.selectedSceneId.set(null); this.selectedClip.set(null); this.selectedId.set(sel.instanceId); }
+    if (sel) { this.selectedSceneId.set(null); this.selectedClip.set(null); this.selectedId.set(sel.instanceId); this.selectedPropId.set(null); }
   }
 
   /** Makes an action longer/shorter. Later actions of the same character slide along. */
@@ -277,6 +363,8 @@ export class SceneStateService {
     if (clip) { if (clip.kind === 'dialogue') this.duplicateDialogue(clip.id); else this.duplicateAudio(clip.id); return null; }
     const sceneId = this.selectedSceneId();
     if (sceneId) { this.duplicateScene(sceneId); return null; }
+    const propId = this.selectedPropId();
+    if (propId) { this.duplicateProp(propId); return null; }
     const act = this.selectedAction();
     if (act) {
       const inst = this.state().characters.find(c => c.instanceId === act.instanceId);
@@ -373,4 +461,8 @@ export class SceneStateService {
     const exists = sel.kind === 'dialogue' ? s.dialogues.some(d => d.id === sel.id) : s.audioClips.some(a => a.id === sel.id);
     if (!exists) this.selectedClip.set(null);
   }
+}
+
+function clampPropScale(v: number): number {
+  return Math.round(Math.min(MAX_PROP_SCALE, Math.max(MIN_PROP_SCALE, v)) * 100) / 100;
 }

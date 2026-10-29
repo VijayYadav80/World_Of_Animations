@@ -1,5 +1,5 @@
 import type { AudioClip, DialogueClip } from './dialogue.models';
-import type { CharacterInstance } from '../services/scene-state.service';
+import type { CharacterInstance, PropInstance } from '../services/scene-state.service';
 import type { SceneSegment } from './scene-segments';
 
 /** One row of the "Open project" list (matches the API's ProjectSummaryDto). */
@@ -28,6 +28,8 @@ export interface SceneFileV2 {
   schemaVersion: 2;
   scenes: SceneSegment[];
   characters: CharacterInstance[];
+  /** Props placed on the stage. Missing in files saved before props existed (read as an empty list). */
+  props: PropInstance[];
   dialogues: DialogueClip[];
   audioClips: AudioClip[];
   /** Audio files used by audioClips. The bytes live on the server: /api/projects/{id}/audio/{assetId}. */
